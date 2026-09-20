@@ -21,7 +21,7 @@ export { GetUserProfileTool } from './get-user-profile-tool.js';
 // Data retrieval
 export { SearchPostsTool } from './search-posts-tool.js';
 export { SearchActorsTool } from './search-actors-tool.js';
-export { GetAuthorFeedTool } from './get-author-feed-tool.js';
+export { GetAuthorFeedTool } from './author-feed-tool.js';
 export { GetTimelineTool } from './timeline-tools.js';
 export {
   GetUserConnectionsTool,
@@ -95,3 +95,11 @@ export {
   GithubGetRecentPrsTool,
   CreateDevlogUpdateTool,
 } from './github-devlog-tools.js';
+
+// GitHub coding workflow
+export {
+  GithubGetDiffTool,
+  GithubGetBranchStatusTool,
+  GithubCreateBranchTool,
+  GithubApplyPatchTool,
+} from './github-coding-tools.js';
