@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bluesky-community-manager",
-  "version": "0.4.1",
-  "description": "Manage Bluesky community activity and publish standalone posts, replies, images, and video through the authenticated Bluesky Community Manager MCP app.",
+  "version": "0.4.7",
+  "description": "Manage Bluesky community activity and publish standalone posts, replies, and ChatGPT-attached images or video through the authenticated Bluesky Community Manager MCP app.",
   "author": {
     "name": "MaybeTall Games"
   },
