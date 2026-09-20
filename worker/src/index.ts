@@ -399,7 +399,7 @@ export default {
       return json({
         ok: true,
         service: "bluesky-community-manager",
-        version: "0.4.8",
+        version: "0.4.9",
         authentication: "noauth-secret-path",
         build: "session-pds-audience-0.4.9",
         config: {
