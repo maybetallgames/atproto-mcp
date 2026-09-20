@@ -39,9 +39,17 @@ import {
   GetUserConnectionsTool,
   GetUserProfileTool,
   GetUserSummaryTool,
+  GithubApplyPatchTool,
+  GithubCommitChangesTool,
+  GithubCreateBranchTool,
+  GithubCreateFixWorkflowTool,
+  GithubCreatePullRequestTool,
+  GithubGetBranchStatusTool,
   GithubGetCommitDetailsTool,
+  GithubGetDiffTool,
   GithubGetRecentCommitsTool,
   GithubGetRecentPrsTool,
+  GithubValidateChangeTool,
   LikePostTool,
   ListConversationsTool,
   MarkNotificationsSeenTool,
@@ -75,20 +83,11 @@ export interface IMcpTool {
     description: string;
     params?: z.ZodSchema;
     annotations?: IToolAnnotations;
-    // Optional JSON Schema describing the tool's result, advertised in tools/list.
-    // Contract: an advertised outputSchema is BINDING — MCP clients (including the
-    // SDK's Client) validate each tools/call structuredContent against it, so the
-    // schema must accurately describe every shape the tool can return, and any
-    // change to a tool's return shape must update its outputSchema in lockstep.
     outputSchema?: Record<string, unknown>;
   };
   handler: (params: any) => Promise<any>;
 }
 
-/**
- * MCP tool annotations (advisory hints, per the MCP spec). Clients MUST NOT trust
- * these for security, but use them to gate auto-approval and confirmation UI.
- */
 export interface IToolAnnotations {
   title?: string;
   readOnlyHint?: boolean;
@@ -97,17 +96,26 @@ export interface IToolAnnotations {
   openWorldHint?: boolean;
 }
 
-/**
- * Create all MCP tools for AT Protocol operations
- */
 export function createTools(atpClient: AtpClient): IMcpTool[] {
   const logger = new Logger('ToolsFactory');
 
   const toolFactories: Array<() => IMcpTool> = [
+    // GitHub devlog tools
     () => new GithubGetRecentCommitsTool(),
     () => new GithubGetCommitDetailsTool(),
     () => new GithubGetRecentPrsTool(),
     () => new CreateDevlogUpdateTool(),
+
+    // GitHub coding workflow
+    () => new GithubGetDiffTool(),
+    () => new GithubGetBranchStatusTool(),
+    () => new GithubCreateBranchTool(),
+    () => new GithubApplyPatchTool(),
+    () => new GithubValidateChangeTool(),
+    () => new GithubCommitChangesTool(),
+    () => new GithubCreatePullRequestTool(),
+    () => new GithubCreateFixWorkflowTool(),
+
     // Core social operations
     () => new CreatePostTool(atpClient),
     () => new CreateThreadTool(atpClient),
@@ -132,7 +140,7 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new MarkNotificationsSeenTool(atpClient),
     () => new GetCommunityActivityTool(atpClient),
 
-    // Direct messages (chat.bsky.convo via the bsky.chat service proxy)
+    // Direct messages
     () => new ListConversationsTool(atpClient),
     () => new GetConversationMessagesTool(atpClient),
     () => new SendDirectMessageTool(atpClient),
@@ -167,11 +175,11 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new UploadVideoTool(atpClient),
     () => new GenerateLinkPreviewTool(atpClient),
 
-    // Analytics and insights
+    // Analytics
     () => new AnalyzeAccountTool(atpClient),
     () => new FindInfluentialUsersTool(atpClient),
 
-    // Content discovery
+    // Discovery
     () => new DiscoverTool(atpClient),
     () => new FindSimilarUsersTool(atpClient),
     () => new DiscoverCommunitiesTool(atpClient),
@@ -191,10 +199,8 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new AnalyzeImageTool(atpClient),
   ];
 
-  // Construct each tool defensively: a single failing constructor must not wipe
-  // out the entire toolset (the previous single try/catch returned []). Skip and
-  // log any tool that throws so the rest remain available.
   const tools: IMcpTool[] = [];
+
   for (const make of toolFactories) {
     try {
       tools.push(make());
