@@ -19,7 +19,8 @@ type WorkerEnv = {
 const tools = [
   { name: "get_community_activity", description: "Get new Bluesky likes, followers, replies, mentions, quotes, and reposts. Uses a saved checkpoint when since is omitted. Set advanceCheckpoint only after successfully processing the response.", inputSchema: { type: "object", properties: { since: { type: "string", format: "date-time" }, limit: { type: "integer", minimum: 1, maximum: 100, default: 100 }, advanceCheckpoint: { type: "boolean", default: false } }, additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: "get_post_context", description: "Read a Bluesky post and its surrounding thread before deciding whether or how to reply.", inputSchema: { type: "object", properties: { uri: { type: "string", pattern: "^at://" }, depth: { type: "integer", minimum: 0, maximum: 20, default: 6 }, parentHeight: { type: "integer", minimum: 0, maximum: 100, default: 20 } }, required: ["uri"], additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
-  { name: "reply_to_post", description: "Publish a Bluesky reply. Intended for comments or mentions on this account's own posts after inspecting the thread.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, root: { type: "string", pattern: "^at://" }, parent: { type: "string", pattern: "^at://" }, langs: { type: "array", items: { type: "string" } } }, required: ["text", "root", "parent"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }
+  { name: "reply_to_post", description: "Publish a Bluesky reply. Intended for comments or mentions on this account's own posts after inspecting the thread.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, root: { type: "string", pattern: "^at://" }, parent: { type: "string", pattern: "^at://" }, langs: { type: "array", items: { type: "string" } } }, required: ["text", "root", "parent"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },
+  { name: "create_post", description: "Publish a new standalone Bluesky post. Supports text, up to four images, or one video. Images may come from HTTPS URLs or base64 data. Video is streamed from an HTTPS URL through Bluesky's video processing service.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, images: { type: "array", maxItems: 4, items: { type: "object", properties: { url: { type: "string", format: "uri" }, base64: { type: "string" }, mimeType: { type: "string", pattern: "^image/" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 } }, additionalProperties: false } }, video: { type: "object", properties: { url: { type: "string", format: "uri" }, mimeType: { type: "string" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } }, required: ["url"], additionalProperties: false } }, required: ["text"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }
 ];
 
 function json(data: unknown, status = 200, headers: HeadersInit = {}): Response { return Response.json(data, { status, headers }); }
@@ -63,7 +64,166 @@ async function cid(env: WorkerEnv, auth: Session, uri: string): Promise<string> 
 async function activity(env: WorkerEnv, args: Obj): Promise<Obj> { const since = typeof args.since === "string" ? args.since : (await env.STATE.get(CHECKPOINT_KEY)) ?? undefined; const limit = typeof args.limit === "number" ? Math.max(1, Math.min(100, Math.trunc(args.limit))) : 100; const auth = await session(env); const query = new URLSearchParams({ limit: String(limit) }); if (since) query.set("seenAt", since); const response = await xrpc<{ notifications: Obj[]; cursor?: string }>(env, "app.bsky.notification.listNotifications", { session: auth, query }); const checkedAt = new Date().toISOString(); const items = response.notifications.filter(item => typeof item.reason === "string" && REASONS.has(item.reason)).filter(item => !since || (typeof item.indexedAt === "string" && Date.parse(item.indexedAt) > Date.parse(since))).map(item => ({ id: `${String(item.uri)}:${String(item.cid)}:${String(item.reason)}`, kind: item.reason, uri: item.uri, cid: item.cid, indexedAt: item.indexedAt, isRead: item.isRead, author: item.author, record: item.record })); if (args.advanceCheckpoint === true) await env.STATE.put(CHECKPOINT_KEY, checkedAt); return { success: true, checkedAt, since: since ?? null, checkpointAdvanced: args.advanceCheckpoint === true, total: items.length, counts: Object.fromEntries([...REASONS].map(reason => [reason, items.filter(item => item.kind === reason).length])), activity: items, cursor: response.cursor ?? null }; }
 async function context(env: WorkerEnv, args: Obj): Promise<Obj> { const auth = await session(env); const query = new URLSearchParams({ uri: required(args, "uri"), depth: String(typeof args.depth === "number" ? Math.trunc(args.depth) : 6), parentHeight: String(typeof args.parentHeight === "number" ? Math.trunc(args.parentHeight) : 20) }); const response = await xrpc<Obj>(env, "app.bsky.feed.getPostThread", { session: auth, query }); return { success: true, thread: response.thread }; }
 async function reply(env: WorkerEnv, args: Obj): Promise<Obj> { const text = required(args, "text"), root = required(args, "root"), parent = required(args, "parent"), auth = await session(env); const [rootCid, parentCid] = await Promise.all([cid(env, auth, root), cid(env, auth, parent)]); const record: Obj = { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString(), reply: { root: { uri: root, cid: rootCid }, parent: { uri: parent, cid: parentCid } } }; if (Array.isArray(args.langs)) record.langs = args.langs.filter(value => typeof value === "string"); const response = await xrpc<{ uri: string; cid: string }>(env, "com.atproto.repo.createRecord", { method: "POST", session: auth, body: { repo: auth.did, collection: "app.bsky.feed.post", record } }); return { success: true, uri: response.uri, cid: response.cid, replyTo: { root, parent } }; }
-async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> { if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); throw new Error(`Unknown tool: ${String(name)}`); }
+
+const VIDEO_SERVICE = "https://video.bsky.app";
+const VIDEO_MAX_SIZE = 300_000_000;
+const IMAGE_MAX_SIZE = 2_000_000;
+const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/mpeg", "video/webm", "video/quicktime", "image/gif"]);
+
+function decodeBase64(value: string): Uint8Array {
+  const raw = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+  const binary = atob(raw.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+function safeMediaName(value: string, mimeType: string): string {
+  const clean = value.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").slice(0, 160);
+  if (clean.includes(".")) return clean;
+  const ext = mimeType === "video/webm" ? "webm" : mimeType === "video/mpeg" ? "mpeg" : mimeType === "video/quicktime" ? "mov" : mimeType === "image/gif" ? "gif" : "mp4";
+  return `${clean || "video"}.${ext}`;
+}
+function sleep(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function uploadImageBlob(env: WorkerEnv, auth: Session, input: unknown): Promise<Obj> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Each image must be an object");
+  const item = input as Obj;
+  const urlValue = typeof item.url === "string" && item.url ? item.url : undefined;
+  const base64Value = typeof item.base64 === "string" && item.base64 ? item.base64 : undefined;
+  if ((urlValue ? 1 : 0) + (base64Value ? 1 : 0) !== 1) throw new Error("Each image must provide exactly one of url or base64");
+
+  let bytes: Uint8Array;
+  let mimeType = typeof item.mimeType === "string" ? item.mimeType : "";
+  if (urlValue) {
+    const sourceUrl = new URL(urlValue);
+    if (sourceUrl.protocol !== "https:") throw new Error("Image URLs must use HTTPS");
+    const source = await fetch(sourceUrl, { redirect: "follow" });
+    if (!source.ok) throw new Error(`Could not fetch image URL (${source.status})`);
+    const length = Number(source.headers.get("content-length") || "0");
+    if (length > IMAGE_MAX_SIZE) throw new Error("Each Bluesky image must be 2 MB or smaller");
+    mimeType = mimeType || (source.headers.get("content-type") || "").split(";")[0]!.trim();
+    bytes = new Uint8Array(await source.arrayBuffer());
+  } else {
+    if (!mimeType) throw new Error("mimeType is required for base64 images");
+    bytes = decodeBase64(base64Value!);
+  }
+  if (!mimeType.startsWith("image/")) throw new Error("Image mimeType must start with image/");
+  if (bytes.byteLength > IMAGE_MAX_SIZE) throw new Error("Each Bluesky image must be 2 MB or smaller");
+
+  const uploadUrl = new URL("/xrpc/com.atproto.repo.uploadBlob", env.ATPROTO_SERVICE || "https://bsky.social");
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${auth.accessJwt}`, "Content-Type": mimeType },
+    body: bytes
+  });
+  if (!response.ok) throw new Error(`Bluesky image upload failed (${response.status}): ${await response.text()}`);
+  const payload = await response.json() as { blob?: Obj };
+  if (!payload.blob) throw new Error("Bluesky image upload returned no blob");
+
+  const image: Obj = { alt: typeof item.alt === "string" ? item.alt : "", image: payload.blob };
+  if (typeof item.width === "number" && typeof item.height === "number" && item.width > 0 && item.height > 0) {
+    image.aspectRatio = { width: Math.trunc(item.width), height: Math.trunc(item.height) };
+  }
+  return image;
+}
+
+async function getVideoServiceAuth(env: WorkerEnv, auth: Session): Promise<string> {
+  const pds = new URL(env.ATPROTO_SERVICE || "https://bsky.social");
+  const query = new URLSearchParams({
+    aud: `did:web:${pds.hostname}`,
+    lxm: "com.atproto.repo.uploadBlob",
+    exp: String(Math.floor(Date.now() / 1000) + 60 * 30)
+  });
+  const response = await xrpc<{ token?: string }>(env, "com.atproto.server.getServiceAuth", { session: auth, query });
+  if (!response.token) throw new Error("Could not obtain Bluesky video service auth token");
+  return response.token;
+}
+
+function normalizeVideoJob(value: unknown): Obj {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid response from Bluesky video service");
+  const obj = value as Obj;
+  const nested = obj.jobStatus;
+  return nested && typeof nested === "object" && !Array.isArray(nested) ? nested as Obj : obj;
+}
+
+async function uploadVideoEmbed(env: WorkerEnv, auth: Session, input: unknown): Promise<Obj> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("video must be an object");
+  const item = input as Obj;
+  const sourceUrl = new URL(required(item, "url"));
+  if (sourceUrl.protocol !== "https:") throw new Error("Video URLs must use HTTPS");
+
+  const source = await fetch(sourceUrl, { redirect: "follow" });
+  if (!source.ok || !source.body) throw new Error(`Could not fetch video URL (${source.status})`);
+  const length = Number(source.headers.get("content-length") || "0");
+  if (length > VIDEO_MAX_SIZE) throw new Error("Bluesky videos must be 300 MB or smaller");
+  const detectedMime = (source.headers.get("content-type") || "").split(";")[0]!.trim();
+  const mimeType = typeof item.mimeType === "string" && item.mimeType ? item.mimeType : detectedMime;
+  if (!VIDEO_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported Bluesky video type: ${mimeType || "unknown"}`);
+
+  const token = await getVideoServiceAuth(env, auth);
+  const pathName = sourceUrl.pathname.split("/").filter(Boolean).pop() || "video";
+  const name = safeMediaName(typeof item.name === "string" ? item.name : pathName, mimeType);
+  const uploadUrl = new URL("/xrpc/app.bsky.video.uploadVideo", VIDEO_SERVICE);
+  uploadUrl.searchParams.set("did", auth.did);
+  uploadUrl.searchParams.set("name", name);
+
+  const upload = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": mimeType },
+    body: source.body
+  });
+  if (!upload.ok) throw new Error(`Bluesky video upload failed (${upload.status}): ${await upload.text()}`);
+
+  let job = normalizeVideoJob(await upload.json());
+  const jobId = typeof job.jobId === "string" ? job.jobId : undefined;
+  for (let attempt = 0; attempt < 75 && !job.blob; attempt++) {
+    const state = String(job.state ?? "");
+    if (/failed|aborted|expired/i.test(state)) throw new Error(`Bluesky video processing failed: ${String(job.error ?? job.message ?? state)}`);
+    if (!jobId) break;
+    await sleep(1000);
+    const statusUrl = new URL("/xrpc/app.bsky.video.getJobStatus", VIDEO_SERVICE);
+    statusUrl.searchParams.set("jobId", jobId);
+    const status = await fetch(statusUrl);
+    if (!status.ok) throw new Error(`Bluesky video status check failed (${status.status}): ${await status.text()}`);
+    job = normalizeVideoJob(await status.json());
+  }
+  if (!job.blob) throw new Error("Bluesky video is still processing; try the post again shortly");
+
+  const embed: Obj = { $type: "app.bsky.embed.video", video: job.blob, alt: typeof item.alt === "string" ? item.alt : "" };
+  if (typeof item.width === "number" && typeof item.height === "number" && item.width > 0 && item.height > 0) {
+    embed.aspectRatio = { width: Math.trunc(item.width), height: Math.trunc(item.height) };
+  }
+  if (mimeType === "image/gif") embed.presentation = "gif";
+  return embed;
+}
+
+async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
+  const text = required(args, "text");
+  const auth = await session(env);
+  const images = Array.isArray(args.images) ? args.images : [];
+  const hasVideo = args.video !== undefined && args.video !== null;
+  if (images.length > 4) throw new Error("Bluesky supports at most four images per post");
+  if (images.length && hasVideo) throw new Error("A Bluesky post cannot contain both image and video embeds");
+
+  const record: Obj = { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString() };
+  if (Array.isArray(args.langs)) record.langs = args.langs.filter(value => typeof value === "string");
+  if (images.length) {
+    const uploaded: Obj[] = [];
+    for (const image of images) uploaded.push(await uploadImageBlob(env, auth, image));
+    record.embed = { $type: "app.bsky.embed.images", images: uploaded };
+  } else if (hasVideo) {
+    record.embed = await uploadVideoEmbed(env, auth, args.video);
+  }
+
+  const response = await xrpc<{ uri: string; cid: string }>(env, "com.atproto.repo.createRecord", {
+    method: "POST",
+    session: auth,
+    body: { repo: auth.did, collection: "app.bsky.feed.post", record }
+  });
+  return { success: true, uri: response.uri, cid: response.cid, imageCount: images.length, hasVideo };
+}
+
+async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> { if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); if (name === "create_post") return result(await createPost(env, args)); throw new Error(`Unknown tool: ${String(name)}`); }
 async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (request.method !== "POST") return new Response("Method not allowed", { status: 405 }); const message = (await request.json()) as Obj, id = message.id ?? null; if (message.method === "initialize") return rpc(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "Bluesky Community Manager", version: "0.2.0" } }); if (message.method === "notifications/initialized") return new Response(null, { status: 202 }); if (message.method === "ping") return rpc(id, {}); if (message.method === "tools/list") return rpc(id, { tools }); if (message.method === "tools/call") { const params = (message.params ?? {}) as Obj; try { return rpc(id, await invoke(env, params.name, (params.arguments ?? {}) as Obj)); } catch (error) { return rpc(id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }); } } return json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(message.method)}` } }); }
 
 function consentPage(clientName: string, csrf: string): Response { const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize Bluesky Community Manager</title><style>body{font:16px system-ui;background:#f5f7fb;color:#172033;margin:0}.card{max-width:520px;margin:10vh auto;background:white;padding:32px;border-radius:16px;box-shadow:0 12px 40px #18243a1f}h1{font-size:25px}button{border:0;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer}.yes{background:#087bea;color:white}.no{background:#e9edf5;color:#263148;margin-left:8px}.note{color:#526077;line-height:1.5}</style></head><body><main class="card"><h1>Authorize Bluesky Community Manager</h1><p><strong>${escapeHtml(clientName)}</strong> is requesting access to this MCP server.</p><p class="note">After you continue, GitHub will verify your identity. Only the approved GitHub account can finish authorization.</p><form method="post" action="/authorize"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button class="yes" name="decision" value="approve">Continue with GitHub</button><button class="no" name="decision" value="deny">Cancel</button></form></main></body></html>`; return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; base-uri 'none'; frame-ancestors 'none'" } }); }
