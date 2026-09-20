@@ -1,6 +1,6 @@
 import { createSign } from 'node:crypto';
 
-export interface GitHubAppEnv {
+export interface IGitHubAppEnv {
   GITHUB_APP_ID: string;
   GITHUB_PRIVATE_KEY: string;
   GITHUB_INSTALLATION_ID: string;
@@ -11,7 +11,7 @@ export interface GitHubAppEnv {
  * Credentials are supplied by runtime environment secrets.
  */
 export class GitHubAppClient {
-  constructor(private readonly env: GitHubAppEnv) {}
+  constructor(private readonly env: IGitHubAppEnv) {}
 
   private async createInstallationToken(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
@@ -37,7 +37,9 @@ export class GitHubAppClient {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${jwt}`,
           'User-Agent': 'Bluesky-Bot-Devlog',
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ permissions: { contents: 'read', pull_requests: 'read' } }),
       }
     );
 
