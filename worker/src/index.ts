@@ -9,19 +9,22 @@ const AUTH_DEBUG_KEY = "community-manager:auth-debug";
 const CHATGPT_LEGACY_CLIENT_ID = "AdDBKnyClJsAw-qM";
 const CHATGPT_LEGACY_REDIRECT_URI = "https://chatgpt.com/connector/oauth/RR_LLajCMzLQ";
 
-async function ensureChatGptLegacyClient(request: Request, env: WorkerEnv): Promise<void> {
+async function ensureChatGptClient(request: Request, env: WorkerEnv): Promise<void> {
   const url = new URL(request.url);
-  if (
-    url.searchParams.get("client_id") !== CHATGPT_LEGACY_CLIENT_ID ||
-    url.searchParams.get("redirect_uri") !== CHATGPT_LEGACY_REDIRECT_URI
-  ) return;
+  const clientId = url.searchParams.get("client_id");
+  const redirectUri = url.searchParams.get("redirect_uri");
+  if (!clientId || !redirectUri) return;
 
-  const existing = await env.OAUTH_PROVIDER.lookupClient(CHATGPT_LEGACY_CLIENT_ID);
+  let redirect: URL;
+  try { redirect = new URL(redirectUri); } catch { return; }
+  if (redirect.protocol !== "https:" || redirect.hostname !== "chatgpt.com" || !redirect.pathname.startsWith("/connector/oauth/")) return;
+
+  const existing = await env.OAUTH_PROVIDER.lookupClient(clientId);
   if (existing) return;
 
   await env.OAUTH_PROVIDER.createClient({
-    clientId: CHATGPT_LEGACY_CLIENT_ID,
-    redirectUris: [CHATGPT_LEGACY_REDIRECT_URI],
+    clientId,
+    redirectUris: [redirectUri],
     clientName: "ChatGPT",
     grantTypes: ["authorization_code", "refresh_token"],
     responseTypes: ["code"],
@@ -92,7 +95,7 @@ function consentPage(clientName: string, csrf: string): Response { const html = 
 async function authorize(request: Request, env: WorkerEnv): Promise<Response> {
   if (request.method === "GET") {
     await recordAuthStage(env, "authorize_get");
-    await ensureChatGptLegacyClient(request, env);
+    await ensureChatGptClient(request, env);
     let oauthRequest: AuthRequest;
     try {
       oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
