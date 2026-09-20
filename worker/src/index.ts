@@ -1,4 +1,4 @@
-import { OAuthProvider, type AuthRequest, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 
 const CHECKPOINT_KEY = "community-manager:last-checked-at";
 const REASONS = new Set(["like", "follow", "reply", "mention", "quote", "repost"]);
@@ -13,7 +13,7 @@ type KV = { get(key: string): Promise<string | null>; put(key: string, value: st
 type WorkerEnv = {
   ATPROTO_IDENTIFIER: string; ATPROTO_PASSWORD: string; ATPROTO_SERVICE?: string;
   GITHUB_APP_CLIENT_ID: string; GITHUB_APP_CLIENT_SECRET: string; GITHUB_ALLOWED_LOGIN: string;
-  COOKIE_ENCRYPTION_KEY: string; STATE: KV; OAUTH_KV: KV; OAUTH_PROVIDER: OAuthHelpers;
+  COOKIE_ENCRYPTION_KEY: string; MCP_SECRET_PATH: string; STATE: KV; OAUTH_KV: KV; OAUTH_PROVIDER: OAuthHelpers;
 };
 
 const tools = [
@@ -94,57 +94,42 @@ async function authorize(request: Request, env: WorkerEnv): Promise<Response> {
 }
 async function callback(request: Request, env: WorkerEnv): Promise<Response> { await recordAuthStage(env, "github_callback"); const url = new URL(request.url), code = url.searchParams.get("code"), state = url.searchParams.get("state"), pending = await verifiedPayload<{ state: string; oauthRequest: AuthRequest }>(cookies(request)[GITHUB_STATE_COOKIE], env.COOKIE_ENCRYPTION_KEY); if (!code || !state || !pending || state !== pending.state) return new Response("GitHub OAuth state validation failed", { status: 400 }); await recordAuthStage(env, "github_state_ok"); const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": "bluesky-community-manager" }, body: JSON.stringify({ client_id: env.GITHUB_APP_CLIENT_ID, client_secret: env.GITHUB_APP_CLIENT_SECRET, code, redirect_uri: `${url.origin}/callback` }) }); const tokenData = await tokenResponse.json() as { access_token?: string; error_description?: string }; if (!tokenResponse.ok || !tokenData.access_token) return new Response(`GitHub token exchange failed: ${tokenData.error_description ?? tokenResponse.status}`, { status: 502 }); await recordAuthStage(env, "github_token_ok"); const userResponse = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: "application/vnd.github+json", "User-Agent": "bluesky-community-manager", "X-GitHub-Api-Version": "2022-11-28" } }); const user = await userResponse.json() as { id?: number; login?: string; name?: string }; if (!userResponse.ok || !user.id || !user.login) return new Response("Could not verify GitHub identity", { status: 502 }); if (user.login.toLowerCase() !== env.GITHUB_ALLOWED_LOGIN.toLowerCase()) return new Response("This GitHub account is not authorized for this Bluesky manager", { status: 403 }); await recordAuthStage(env, "github_user_ok"); const completed = await env.OAUTH_PROVIDER.completeAuthorization({ request: pending.oauthRequest, userId: `github:${user.id}`, metadata: { label: user.login }, scope: pending.oauthRequest.scope, props: { githubId: user.id, githubLogin: user.login } }); await recordAuthStage(env, "authorization_completed"); const response = new Response(null, { status: 302, headers: { Location: completed.redirectTo } }); response.headers.append("Set-Cookie", setCookie("github_state", "", 0)); return response; }
 
-const apiHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { return mcp(request, env); } };
-const defaultHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { const path = new URL(request.url).pathname; if (path === "/health") return json({ ok: true, service: "bluesky-community-manager", version: "0.2.2", authentication: "oauth", upstreamIdentity: "github-app", config: { githubAppClientId: Boolean(env.GITHUB_APP_CLIENT_ID), githubAppClientSecret: Boolean(env.GITHUB_APP_CLIENT_SECRET), githubAllowedLogin: Boolean(env.GITHUB_ALLOWED_LOGIN), cookieEncryptionKey: Boolean(env.COOKIE_ENCRYPTION_KEY), atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER), atprotoPassword: Boolean(env.ATPROTO_PASSWORD) } }); if (path === "/auth-debug") return authDebug(env); if (path === "/authorize") return authorize(request, env); if (path === "/callback") return callback(request, env); if (path === "/") return new Response("Bluesky Community Manager MCP server", { headers: { "Content-Type": "text/plain; charset=utf-8" } }); return new Response("Not found", { status: 404 }); } };
-
-const oauthProvider = new OAuthProvider<WorkerEnv>({ apiRoute: "/mcp", apiHandler, defaultHandler, authorizeEndpoint: "/authorize", tokenEndpoint: "/token", clientIdMetadataDocumentEnabled: true, scopesSupported: ["bluesky.manage"], allowPlainPKCE: false, accessTokenTTL: 3600, refreshTokenTTL: 2592000, onError({ code, description, status, internal }) { console.error("OAuth provider error", { code, description, status, category: internal?.category, reason: internal?.reason }); }, resourceMetadata: { resource: "https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp", authorization_servers: ["https://bluesky-community-manager.eric-r-fraze.workers.dev"], scopes_supported: ["bluesky.manage"], bearer_methods_supported: ["header"], resource_name: "Bluesky Community Manager" } });
-
-
 export default {
-  async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname !== "/token") return oauthProvider.fetch(request, env, ctx);
+    const secret = (env.MCP_SECRET_PATH || "").trim();
 
-    try {
-      const clone = request.clone();
-      const contentType = clone.headers.get("Content-Type") || "";
-      const authHeader = clone.headers.get("Authorization");
-      let fields: string[] = [];
-      let grantType: string | null = null;
-      let hasClientId = false, hasClientSecret = false, hasCode = false, hasVerifier = false, hasRedirectUri = false, hasResource = false;
-      if (contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
-        const form = await clone.formData();
-        fields = [...new Set([...form.keys()])].sort();
-        grantType = typeof form.get("grant_type") === "string" ? String(form.get("grant_type")) : null;
-        hasClientId = form.has("client_id");
-        hasClientSecret = form.has("client_secret");
-        hasCode = form.has("code");
-        hasVerifier = form.has("code_verifier");
-        hasRedirectUri = form.has("redirect_uri");
-        hasResource = form.has("resource");
-      }
-      const authKind = authHeader?.toLowerCase().startsWith("basic ") ? "basic" : authHeader ? "other" : "none";
-      await recordAuthStage(env, `token_request:${grantType ?? "unknown"}:auth=${authKind}:client_id=${hasClientId}:client_secret=${hasClientSecret}:code=${hasCode}:verifier=${hasVerifier}:redirect_uri=${hasRedirectUri}:resource=${hasResource}:fields=${fields.join(",")}`);
-    } catch {
-      await recordAuthStage(env, "token_request_inspection_failed");
+    if (url.pathname === "/health") {
+      return json({
+        ok: true,
+        service: "bluesky-community-manager",
+        version: "0.3.0",
+        authentication: "noauth-secret-path",
+        config: {
+          mcpSecretPath: Boolean(secret),
+          atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER),
+          atprotoPassword: Boolean(env.ATPROTO_PASSWORD)
+        }
+      }, 200, { "Cache-Control": "no-store" });
     }
 
-    const response = await oauthProvider.fetch(request, env, ctx);
-    try {
-      const clone = response.clone();
-      let errorCode = "";
-      let errorDescription = "";
-      const type = clone.headers.get("Content-Type") || "";
-      if (type.toLowerCase().includes("application/json")) {
-        const body = await clone.json() as { error?: unknown; error_description?: unknown };
-        errorCode = typeof body.error === "string" ? body.error : "";
-        errorDescription = typeof body.error_description === "string" ? body.error_description : "";
-      }
-      const safeDescription = errorDescription.replace(/[^a-zA-Z0-9 _.:/-]/g, "").slice(0, 120);
-      await recordAuthStage(env, `token_response:status=${response.status}:error=${errorCode}:description=${safeDescription}`);
-    } catch {
-      await recordAuthStage(env, `token_response:status=${response.status}`);
+    if (url.pathname === "/") {
+      return new Response("Bluesky Community Manager MCP server", {
+        headers: { "Content-Type": "text/plain; charset=utf-8" }
+      });
     }
-    return response;
+
+    // Never expose the MCP on the predictable public route.
+    if (url.pathname === "/mcp") return new Response("Not found", { status: 404 });
+
+    if (!secret) {
+      return new Response("MCP secret path is not configured", { status: 503 });
+    }
+
+    if (url.pathname === `/mcp/${secret}`) {
+      return mcp(request, env);
+    }
+
+    return new Response("Not found", { status: 404 });
   }
 };
