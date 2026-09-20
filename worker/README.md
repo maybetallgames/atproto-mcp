@@ -37,3 +37,4 @@ When deploying this worker from Cloudflare's Git integration with the project pa
 
 This avoids Cloudflare running `pnpm install --frozen-lockfile` inside `worker/`, where there is no dedicated `pnpm-lock.yaml`.
 
+Deployment note: OAuth provider upgraded to the ChatGPT-compatible 0.10.x line.
