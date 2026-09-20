@@ -16,34 +16,17 @@ async function ensureChatGptLegacyClient(request: Request, env: WorkerEnv): Prom
     url.searchParams.get("redirect_uri") !== CHATGPT_LEGACY_REDIRECT_URI
   ) return;
 
-  const migrationKey = "community-manager:chatgpt-client-registration-v2";
-  const migrated = await env.STATE.get(migrationKey);
-
-  if (!migrated) {
-    try { await env.OAUTH_PROVIDER.deleteClient(CHATGPT_LEGACY_CLIENT_ID); } catch {}
-    await env.OAUTH_PROVIDER.createClient({
-      clientId: CHATGPT_LEGACY_CLIENT_ID,
-      redirectUris: [CHATGPT_LEGACY_REDIRECT_URI],
-      clientName: "ChatGPT",
-      grantTypes: ["authorization_code", "refresh_token"],
-      responseTypes: ["code"],
-      tokenEndpointAuthMethod: "none"
-    });
-    await env.STATE.put(migrationKey, new Date().toISOString());
-    return;
-  }
-
   const existing = await env.OAUTH_PROVIDER.lookupClient(CHATGPT_LEGACY_CLIENT_ID);
-  if (!existing) {
-    await env.OAUTH_PROVIDER.createClient({
-      clientId: CHATGPT_LEGACY_CLIENT_ID,
-      redirectUris: [CHATGPT_LEGACY_REDIRECT_URI],
-      clientName: "ChatGPT",
-      grantTypes: ["authorization_code", "refresh_token"],
-      responseTypes: ["code"],
-      tokenEndpointAuthMethod: "none"
-    });
-  }
+  if (existing) return;
+
+  await env.OAUTH_PROVIDER.createClient({
+    clientId: CHATGPT_LEGACY_CLIENT_ID,
+    redirectUris: [CHATGPT_LEGACY_REDIRECT_URI],
+    clientName: "ChatGPT",
+    grantTypes: ["authorization_code", "refresh_token"],
+    responseTypes: ["code"],
+    tokenEndpointAuthMethod: "none"
+  });
 }
 
 type Obj = Record<string, unknown>;
