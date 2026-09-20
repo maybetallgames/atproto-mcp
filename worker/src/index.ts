@@ -137,5 +137,54 @@ async function callback(request: Request, env: WorkerEnv): Promise<Response> { a
 const apiHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { return mcp(request, env); } };
 const defaultHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { const path = new URL(request.url).pathname; if (path === "/health") return json({ ok: true, service: "bluesky-community-manager", version: "0.2.2", authentication: "oauth", upstreamIdentity: "github-app", config: { githubAppClientId: Boolean(env.GITHUB_APP_CLIENT_ID), githubAppClientSecret: Boolean(env.GITHUB_APP_CLIENT_SECRET), githubAllowedLogin: Boolean(env.GITHUB_ALLOWED_LOGIN), cookieEncryptionKey: Boolean(env.COOKIE_ENCRYPTION_KEY), atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER), atprotoPassword: Boolean(env.ATPROTO_PASSWORD) } }); if (path === "/auth-debug") return authDebug(env); if (path === "/authorize") return authorize(request, env); if (path === "/callback") return callback(request, env); if (path === "/") return new Response("Bluesky Community Manager MCP server", { headers: { "Content-Type": "text/plain; charset=utf-8" } }); return new Response("Not found", { status: 404 }); } };
 
-export default new OAuthProvider<WorkerEnv>({ apiRoute: "/mcp", apiHandler, defaultHandler, authorizeEndpoint: "/authorize", tokenEndpoint: "/token", clientRegistrationEndpoint: "/register", clientIdMetadataDocumentEnabled: true, scopesSupported: ["bluesky.manage"], allowPlainPKCE: false, accessTokenTTL: 3600, refreshTokenTTL: 2592000, onError({ code, description, status, internal }) { console.error("OAuth provider error", { code, description, status, category: internal?.category, reason: internal?.reason }); }, resourceMetadata: { resource: "https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp", authorization_servers: ["https://bluesky-community-manager.eric-r-fraze.workers.dev"], scopes_supported: ["bluesky.manage"], bearer_methods_supported: ["header"], resource_name: "Bluesky Community Manager" } });
+const oauthProvider = new OAuthProvider<WorkerEnv>({ apiRoute: "/mcp", apiHandler, defaultHandler, authorizeEndpoint: "/authorize", tokenEndpoint: "/token", clientRegistrationEndpoint: "/register", clientIdMetadataDocumentEnabled: true, scopesSupported: ["bluesky.manage"], allowPlainPKCE: false, accessTokenTTL: 3600, refreshTokenTTL: 2592000, onError({ code, description, status, internal }) { console.error("OAuth provider error", { code, description, status, category: internal?.category, reason: internal?.reason }); }, resourceMetadata: { resource: "https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp", authorization_servers: ["https://bluesky-community-manager.eric-r-fraze.workers.dev"], scopes_supported: ["bluesky.manage"], bearer_methods_supported: ["header"], resource_name: "Bluesky Community Manager" } });
 
+
+export default {
+  async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname !== "/token") return oauthProvider.fetch(request, env, ctx);
+
+    try {
+      const clone = request.clone();
+      const contentType = clone.headers.get("Content-Type") || "";
+      const authHeader = clone.headers.get("Authorization");
+      let fields: string[] = [];
+      let grantType: string | null = null;
+      let hasClientId = false, hasClientSecret = false, hasCode = false, hasVerifier = false, hasRedirectUri = false, hasResource = false;
+      if (contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+        const form = await clone.formData();
+        fields = [...new Set([...form.keys()])].sort();
+        grantType = typeof form.get("grant_type") === "string" ? String(form.get("grant_type")) : null;
+        hasClientId = form.has("client_id");
+        hasClientSecret = form.has("client_secret");
+        hasCode = form.has("code");
+        hasVerifier = form.has("code_verifier");
+        hasRedirectUri = form.has("redirect_uri");
+        hasResource = form.has("resource");
+      }
+      const authKind = authHeader?.toLowerCase().startsWith("basic ") ? "basic" : authHeader ? "other" : "none";
+      await recordAuthStage(env, `token_request:${grantType ?? "unknown"}:auth=${authKind}:client_id=${hasClientId}:client_secret=${hasClientSecret}:code=${hasCode}:verifier=${hasVerifier}:redirect_uri=${hasRedirectUri}:resource=${hasResource}:fields=${fields.join(",")}`);
+    } catch {
+      await recordAuthStage(env, "token_request_inspection_failed");
+    }
+
+    const response = await oauthProvider.fetch(request, env, ctx);
+    try {
+      const clone = response.clone();
+      let errorCode = "";
+      let errorDescription = "";
+      const type = clone.headers.get("Content-Type") || "";
+      if (type.toLowerCase().includes("application/json")) {
+        const body = await clone.json() as { error?: unknown; error_description?: unknown };
+        errorCode = typeof body.error === "string" ? body.error : "";
+        errorDescription = typeof body.error_description === "string" ? body.error_description : "";
+      }
+      const safeDescription = errorDescription.replace(/[^a-zA-Z0-9 _.:/-]/g, "").slice(0, 120);
+      await recordAuthStage(env, `token_response:status=${response.status}:error=${errorCode}:description=${safeDescription}`);
+    } catch {
+      await recordAuthStage(env, `token_response:status=${response.status}`);
+    }
+    return response;
+  }
+};
