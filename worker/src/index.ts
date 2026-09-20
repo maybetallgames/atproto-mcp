@@ -62,7 +62,68 @@ async function xrpc<T>(env: WorkerEnv, path: string, options: { method?: "GET" |
 async function session(env: WorkerEnv): Promise<Session> { return xrpc(env, "com.atproto.server.createSession", { method: "POST", body: { identifier: env.ATPROTO_IDENTIFIER, password: env.ATPROTO_PASSWORD } }); }
 function postParts(uri: string): { repo: string; collection: string; rkey: string } { const match = /^at:\/\/([^/]+)\/(app\.bsky\.feed\.post)\/([^/]+)$/.exec(uri); if (!match?.[1] || !match[2] || !match[3]) throw new Error("Expected an app.bsky.feed.post AT-URI"); return { repo: match[1], collection: match[2], rkey: match[3] }; }
 async function cid(env: WorkerEnv, auth: Session, uri: string): Promise<string> { const record = await xrpc<{ cid?: string }>(env, "com.atproto.repo.getRecord", { session: auth, query: new URLSearchParams(postParts(uri)) }); if (!record.cid) throw new Error(`Could not resolve CID for ${uri}`); return record.cid; }
-async function activity(env: WorkerEnv, args: Obj): Promise<Obj> { const since = typeof args.since === "string" ? args.since : (await env.STATE.get(CHECKPOINT_KEY)) ?? undefined; const limit = typeof args.limit === "number" ? Math.max(1, Math.min(100, Math.trunc(args.limit))) : 100; const auth = await session(env); const query = new URLSearchParams({ limit: String(limit) }); if (since) query.set("seenAt", since); const response = await xrpc<{ notifications: Obj[]; cursor?: string }>(env, "app.bsky.notification.listNotifications", { session: auth, query }); const checkedAt = new Date().toISOString(); const items = response.notifications.filter(item => typeof item.reason === "string" && REASONS.has(item.reason)).filter(item => !since || (typeof item.indexedAt === "string" && Date.parse(item.indexedAt) > Date.parse(since))).map(item => ({ id: `${String(item.uri)}:${String(item.cid)}:${String(item.reason)}`, kind: item.reason, uri: item.uri, cid: item.cid, indexedAt: item.indexedAt, isRead: item.isRead, author: item.author, record: item.record })); if (args.advanceCheckpoint === true) await env.STATE.put(CHECKPOINT_KEY, checkedAt); return { success: true, checkedAt, since: since ?? null, checkpointAdvanced: args.advanceCheckpoint === true, total: items.length, counts: Object.fromEntries([...REASONS].map(reason => [reason, items.filter(item => item.kind === reason).length])), activity: items, cursor: response.cursor ?? null }; }
+async function activity(env: WorkerEnv, args: Obj): Promise<Obj> {
+  const since = typeof args.since === "string" ? args.since : (await env.STATE.get(CHECKPOINT_KEY)) ?? undefined;
+  const sinceMs = since ? Date.parse(since) : undefined;
+  if (since && Number.isNaN(sinceMs)) throw new Error("since must be a valid date-time");
+  const limit = typeof args.limit === "number" ? Math.max(1, Math.min(100, Math.trunc(args.limit))) : 100;
+  const auth = await session(env);
+  const checkedAt = new Date().toISOString();
+  const items: Obj[] = [];
+  let cursor: string | undefined;
+  let pagesScanned = 0;
+  let reachedSince = false;
+
+  do {
+    const query = new URLSearchParams({ limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await xrpc<{ notifications: Obj[]; cursor?: string }>(
+      env,
+      "app.bsky.notification.listNotifications",
+      { session: auth, query }
+    );
+    pagesScanned++;
+
+    for (const item of response.notifications) {
+      const indexedAt = typeof item.indexedAt === "string" ? item.indexedAt : undefined;
+      const indexedMs = indexedAt ? Date.parse(indexedAt) : NaN;
+      if (sinceMs !== undefined && Number.isFinite(indexedMs) && indexedMs <= sinceMs) {
+        reachedSince = true;
+        continue;
+      }
+      if (typeof item.reason !== "string" || !REASONS.has(item.reason)) continue;
+      if (sinceMs !== undefined && (!Number.isFinite(indexedMs) || indexedMs <= sinceMs)) continue;
+      items.push({
+        id: `${String(item.uri)}:${String(item.cid)}:${String(item.reason)}`,
+        kind: item.reason,
+        uri: item.uri,
+        cid: item.cid,
+        indexedAt: item.indexedAt,
+        isRead: item.isRead,
+        author: item.author,
+        record: item.record
+      });
+      if (items.length >= limit) break;
+    }
+
+    cursor = response.cursor;
+  } while (items.length < limit && cursor && !reachedSince && pagesScanned < 20);
+
+  if (args.advanceCheckpoint === true) await env.STATE.put(CHECKPOINT_KEY, checkedAt);
+  const activity = items.slice(0, limit);
+  return {
+    success: true,
+    checkedAt,
+    since: since ?? null,
+    checkpointAdvanced: args.advanceCheckpoint === true,
+    total: activity.length,
+    counts: Object.fromEntries([...REASONS].map(reason => [reason, activity.filter(item => item.kind === reason).length])),
+    activity,
+    cursor: cursor ?? null,
+    pagesScanned,
+    truncated: Boolean(cursor && !reachedSince && pagesScanned >= 20)
+  };
+}
 async function context(env: WorkerEnv, args: Obj): Promise<Obj> { const auth = await session(env); const query = new URLSearchParams({ uri: required(args, "uri"), depth: String(typeof args.depth === "number" ? Math.trunc(args.depth) : 6), parentHeight: String(typeof args.parentHeight === "number" ? Math.trunc(args.parentHeight) : 20) }); const response = await xrpc<Obj>(env, "app.bsky.feed.getPostThread", { session: auth, query }); return { success: true, thread: response.thread }; }
 async function reply(env: WorkerEnv, args: Obj): Promise<Obj> { const text = required(args, "text"), root = required(args, "root"), parent = required(args, "parent"), auth = await session(env); const [rootCid, parentCid] = await Promise.all([cid(env, auth, root), cid(env, auth, parent)]); const record: Obj = { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString(), reply: { root: { uri: root, cid: rootCid }, parent: { uri: parent, cid: parentCid } } }; if (Array.isArray(args.langs)) record.langs = args.langs.filter(value => typeof value === "string"); const response = await xrpc<{ uri: string; cid: string }>(env, "com.atproto.repo.createRecord", { method: "POST", session: auth, body: { repo: auth.did, collection: "app.bsky.feed.post", record } }); return { success: true, uri: response.uri, cid: response.cid, replyTo: { root, parent } }; }
 
@@ -274,7 +335,7 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
   return { success: true, uri: response.uri, cid: response.cid, imageCount: images.length, hasVideo };
 }
 async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> { if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); if (name === "create_post" || name === "create_post_with_media") return result(await createPost(env, args)); throw new Error(`Unknown tool: ${String(name)}`); }
-async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (request.method !== "POST") return new Response("Method not allowed", { status: 405 }); const message = (await request.json()) as Obj, id = message.id ?? null; if (message.method === "initialize") return rpc(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "Bluesky Community Manager", version: "0.4.5" } }); if (message.method === "notifications/initialized") return new Response(null, { status: 202 }); if (message.method === "ping") return rpc(id, {}); if (message.method === "tools/list") return rpc(id, { tools }); if (message.method === "tools/call") { const params = (message.params ?? {}) as Obj; try { return rpc(id, await invoke(env, params.name, (params.arguments ?? {}) as Obj)); } catch (error) { return rpc(id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }); } } return json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(message.method)}` } }); }
+async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (request.method !== "POST") return new Response("Method not allowed", { status: 405 }); const message = (await request.json()) as Obj, id = message.id ?? null; if (message.method === "initialize") return rpc(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "Bluesky Community Manager", version: "0.4.6" } }); if (message.method === "notifications/initialized") return new Response(null, { status: 202 }); if (message.method === "ping") return rpc(id, {}); if (message.method === "tools/list") return rpc(id, { tools }); if (message.method === "tools/call") { const params = (message.params ?? {}) as Obj; try { return rpc(id, await invoke(env, params.name, (params.arguments ?? {}) as Obj)); } catch (error) { return rpc(id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }); } } return json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(message.method)}` } }); }
 
 function consentPage(clientName: string, csrf: string): Response { const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize Bluesky Community Manager</title><style>body{font:16px system-ui;background:#f5f7fb;color:#172033;margin:0}.card{max-width:520px;margin:10vh auto;background:white;padding:32px;border-radius:16px;box-shadow:0 12px 40px #18243a1f}h1{font-size:25px}button{border:0;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer}.yes{background:#087bea;color:white}.no{background:#e9edf5;color:#263148;margin-left:8px}.note{color:#526077;line-height:1.5}</style></head><body><main class="card"><h1>Authorize Bluesky Community Manager</h1><p><strong>${escapeHtml(clientName)}</strong> is requesting access to this MCP server.</p><p class="note">After you continue, GitHub will verify your identity. Only the approved GitHub account can finish authorization.</p><form method="post" action="/authorize"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button class="yes" name="decision" value="approve">Continue with GitHub</button><button class="no" name="decision" value="deny">Cancel</button></form></main></body></html>`; return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; base-uri 'none'; frame-ancestors 'none'" } }); }
 async function authorize(request: Request, env: WorkerEnv): Promise<Response> {
@@ -313,9 +374,9 @@ export default {
       return json({
         ok: true,
         service: "bluesky-community-manager",
-        version: "0.4.5",
+        version: "0.4.6",
         authentication: "noauth-secret-path",
-        build: "direct-chatgpt-files-0.4.5",
+        build: "notification-cursor-filter-0.4.6",
         config: {
           mcpSecretPath: Boolean(secret),
           atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER),
