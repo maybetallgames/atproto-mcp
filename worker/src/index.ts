@@ -3,6 +3,31 @@ import { OAuthProvider, type AuthRequest, type OAuthHelpers } from "@cloudflare/
 const CHECKPOINT_KEY = "community-manager:last-checked-at";
 const REASONS = new Set(["like", "follow", "reply", "mention", "quote", "repost"]);
 const COOKIE_TTL = 600;
+const CHATGPT_LEGACY_CLIENT_ID = "AdDBKnyClJsAw-qM";
+const CHATGPT_LEGACY_REDIRECT_URI = "https://chatgpt.com/connector/oauth/RR_LLajCMzLQ";
+
+async function ensureChatGptLegacyClient(request: Request, env: WorkerEnv): Promise<void> {
+  const url = new URL(request.url);
+  if (
+    url.searchParams.get("client_id") !== CHATGPT_LEGACY_CLIENT_ID ||
+    url.searchParams.get("redirect_uri") !== CHATGPT_LEGACY_REDIRECT_URI
+  ) return;
+
+  await env.OAUTH_KV.put(
+    `client:${CHATGPT_LEGACY_CLIENT_ID}`,
+    JSON.stringify({
+      clientId: CHATGPT_LEGACY_CLIENT_ID,
+      redirectUris: [CHATGPT_LEGACY_REDIRECT_URI],
+      clientName: "ChatGPT",
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      registrationDate: Math.floor(Date.now() / 1000),
+      tokenEndpointAuthMethod: "none",
+      authMethodExplicit: true
+    })
+  );
+}
+
 type Obj = Record<string, unknown>;
 type Session = { accessJwt: string; did: string };
 type KV = { get(key: string): Promise<string | null>; put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>; delete(key: string): Promise<void> };
@@ -51,6 +76,7 @@ async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (re
 function consentPage(clientName: string, csrf: string): Response { const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize Bluesky Community Manager</title><style>body{font:16px system-ui;background:#f5f7fb;color:#172033;margin:0}.card{max-width:520px;margin:10vh auto;background:white;padding:32px;border-radius:16px;box-shadow:0 12px 40px #18243a1f}h1{font-size:25px}button{border:0;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer}.yes{background:#087bea;color:white}.no{background:#e9edf5;color:#263148;margin-left:8px}.note{color:#526077;line-height:1.5}</style></head><body><main class="card"><h1>Authorize Bluesky Community Manager</h1><p><strong>${escapeHtml(clientName)}</strong> is requesting access to this MCP server.</p><p class="note">After you continue, GitHub will verify your identity. Only the approved GitHub account can finish authorization.</p><form method="post" action="/authorize"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button class="yes" name="decision" value="approve">Continue with GitHub</button><button class="no" name="decision" value="deny">Cancel</button></form></main></body></html>`; return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; base-uri 'none'; frame-ancestors 'none'" } }); }
 async function authorize(request: Request, env: WorkerEnv): Promise<Response> {
   if (request.method === "GET") {
+    await ensureChatGptLegacyClient(request, env);
     let oauthRequest: AuthRequest;
     try {
       oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
