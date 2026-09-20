@@ -6,7 +6,7 @@
     "build": "rollup -c"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.10.2"
+    "@cloudflare/workers-oauth-provider": "^0.10.3"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.1",
