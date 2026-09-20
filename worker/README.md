@@ -1,13 +1,18 @@
 # Cloudflare Worker deployment
 
-This Worker exposes an OAuth-protected MCP surface for the Bluesky community-manager workflow:
+This Worker exposes an OAuth-protected MCP surface for the Bluesky
+community-manager workflow:
 
 - `get_community_activity`
 - `get_post_context`
 - `reply_to_post`
-- `create_post` with text, up to 4 images, or 1 video; ChatGPT file-picker attachments are accepted through `mediaFiles`
+- `create_post` with text, up to 4 images, or 1 video; ChatGPT file-picker
+  attachments are accepted through `mediaFiles`
 
-It uses Cloudflare's OAuth provider library with dynamic client registration, authorization-code flow, S256 PKCE, refresh tokens, GitHub App user authorization, a consent screen, and signed CSRF/state cookies. Only `GITHUB_ALLOWED_LOGIN` may authorize the server.
+It uses Cloudflare's OAuth provider library with dynamic client registration,
+authorization-code flow, S256 PKCE, refresh tokens, GitHub App user
+authorization, a consent screen, and signed CSRF/state cookies. Only
+`GITHUB_ALLOWED_LOGIN` may authorize the server.
 
 Required Worker secrets:
 
@@ -19,27 +24,55 @@ Required Worker secrets:
 - `GITHUB_ALLOWED_LOGIN`
 - `COOKIE_ENCRYPTION_KEY`
 
-Both `STATE` and `OAUTH_KV` are KV bindings. They may point to the same namespace because their keys use separate prefixes.
+Both `STATE` and `OAUTH_KV` are KV bindings. They may point to the same
+namespace because their keys use separate prefixes.
 
-Short-lived consent and GitHub App authorization handoff state is kept in signed, HttpOnly cookies so authorization does not depend on KV propagation between edge locations.
+Short-lived consent and GitHub App authorization handoff state is kept in
+signed, HttpOnly cookies so authorization does not depend on KV propagation
+between edge locations.
 
-The MCP endpoint is `https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp`. OAuth clients discover authorization metadata automatically from the Worker's well-known endpoints.
+The MCP endpoint is
+`https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp`. OAuth clients
+discover authorization metadata automatically from the Worker's well-known
+endpoints.
 
 Build with `npm install` and `npm run build`.
 
 ## Cloudflare Git build settings
 
-When deploying this worker from Cloudflare's Git integration with the project path set to `worker`, disable Cloudflare's automatic dependency install and install explicitly in the build command:
+When deploying this worker from Cloudflare's Git integration with the project
+path set to `worker`, disable Cloudflare's automatic dependency install and
+install explicitly in the build command:
 
 - Path: `worker`
 - Build command: `pnpm install --no-frozen-lockfile && pnpm run build`
 - Deploy command: `npx wrangler deploy`
 - Build variable: `SKIP_DEPENDENCY_INSTALL=1`
 
-This avoids Cloudflare running `pnpm install --frozen-lockfile` inside `worker/`, where there is no dedicated `pnpm-lock.yaml`.
+This avoids Cloudflare running `pnpm install --frozen-lockfile` inside
+`worker/`, where there is no dedicated `pnpm-lock.yaml`.
 
 Deployment note: OAuth provider upgraded to the ChatGPT-compatible 0.10.x line.
 
 ## GitHub App authentication
 
-This deployment uses a GitHub App for the identity check instead of a classic GitHub OAuth App. Create/install the GitHub App using the settings in [GITHUB_APP_SETUP.md](./GITHUB_APP_SETUP.md), then store its client ID and client secret as Worker secrets.
+This deployment uses a GitHub App for the identity check instead of a classic
+GitHub OAuth App. Create/install the GitHub App using the settings in
+[GITHUB_APP_SETUP.md](./GITHUB_APP_SETUP.md), then store its client ID and
+client secret as Worker secrets.
+
+### Read-only GitHub devlog tools
+
+The Worker advertises `github_get_recent_commits`, `github_get_commit_details`,
+`github_get_recent_prs`, and `create_devlog_update`. Configure the GitHub App's
+**Contents: read** and **Pull requests: read** permissions for
+`maybetallgames/LetsDive`, then add `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and
+`GITHUB_INSTALLATION_ID` as Cloudflare Worker secrets (`wrangler secret put`).
+The installation token also requests only these read permissions. Never put the
+private key in Wrangler config.
+
+`create_devlog_update` returns facts and candidate commit references; it does
+not publish a post. After `create_post` succeeds, pass its returned `uri` and
+the candidate `commitReferences` to `record_devlog_post`. That action saves
+`lastPostedCommit`, `lastPostedAt`, and recent post references in the existing
+Cloudflare `STATE` KV binding. A failed post leaves the checkpoint untouched.

@@ -3,8 +3,17 @@ import { BaseTool, ToolAuthMode } from './base-tool.js';
 import type { AtpClient } from '../../utils/atp-client.js';
 
 const CommunityActivitySchema = z.object({
-  since: z.string().optional().describe('ISO 8601 timestamp. Only activity after this time is returned.'),
-  limit: z.number().int().min(1).max(100).default(100).describe('Maximum notifications to inspect (1-100).'),
+  since: z
+    .string()
+    .optional()
+    .describe('ISO 8601 timestamp. Only activity after this time is returned.'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(100)
+    .describe('Maximum notifications to inspect (1-100).'),
 });
 
 type ActivityKind = 'like' | 'follow' | 'reply' | 'mention' | 'quote' | 'repost';
@@ -24,6 +33,7 @@ export class GetCommunityActivityTool extends BaseTool {
     description:
       'Get recent Bluesky community activity for an agent/community-manager loop. Returns likes, new followers, replies, mentions, quotes, and reposts grouped into a compact summary. Requires authentication. This tool is read-only and does not mark notifications seen or publish replies. Inspect reply/mention thread context before deciding how to respond.',
     params: CommunityActivitySchema,
+    outputSchema: { type: 'object', additionalProperties: true },
     annotations: {
       title: 'Get Bluesky community activity',
       readOnlyHint: true,
@@ -55,7 +65,8 @@ export class GetCommunityActivityTool extends BaseTool {
         .filter((notification: any) => INCLUDED_REASONS.has(notification.reason as ActivityKind))
         .filter(
           (notification: any) =>
-            !params.since || new Date(notification.indexedAt).getTime() > new Date(params.since).getTime()
+            !params.since ||
+            new Date(notification.indexedAt).getTime() > new Date(params.since).getTime()
         )
         .map((notification: any) => ({
           id: `${notification.uri}:${notification.cid}:${notification.reason}`,

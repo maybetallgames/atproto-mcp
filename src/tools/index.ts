@@ -15,6 +15,7 @@ import {
   AnalyzeModerationStatusTool,
   BatchActionTool,
   BlockUserTool,
+  CreateDevlogUpdateTool,
   CreateListTool,
   CreatePostTool,
   CreateThreadTool,
@@ -27,9 +28,9 @@ import {
   GenerateLinkPreviewTool,
   GetAuthorFeedTool,
   GetBookmarksTool,
+  GetCommunityActivityTool,
   GetConversationMessagesTool,
   GetCustomFeedTool,
-  GetCommunityActivityTool,
   GetListTool,
   GetNotificationsTool,
   GetPostContextTool,
@@ -38,6 +39,9 @@ import {
   GetUserConnectionsTool,
   GetUserProfileTool,
   GetUserSummaryTool,
+  GithubGetCommitDetailsTool,
+  GithubGetRecentCommitsTool,
+  GithubGetRecentPrsTool,
   LikePostTool,
   ListConversationsTool,
   MarkNotificationsSeenTool,
@@ -100,6 +104,10 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
   const logger = new Logger('ToolsFactory');
 
   const toolFactories: Array<() => IMcpTool> = [
+    () => new GithubGetRecentCommitsTool(),
+    () => new GithubGetCommitDetailsTool(),
+    () => new GithubGetRecentPrsTool(),
+    () => new CreateDevlogUpdateTool(),
     // Core social operations
     () => new CreatePostTool(atpClient),
     () => new CreateThreadTool(atpClient),

@@ -69,6 +69,10 @@ const RESOURCE_NOT_FOUND_ERROR_CODE = -32002;
  *   dedup/no-op path, or set/clear semantics of the underlying XRPC endpoint.
  */
 const TOOL_ANNOTATIONS: Readonly<Record<string, IToolAnnotations>> = {
+  github_get_recent_commits: { readOnlyHint: true },
+  github_get_commit_details: { readOnlyHint: true },
+  github_get_recent_prs: { readOnlyHint: true },
+  create_devlog_update: { readOnlyHint: true },
   // Pure read tools.
   analyze_account: { readOnlyHint: true },
   analyze_image: { readOnlyHint: true },
