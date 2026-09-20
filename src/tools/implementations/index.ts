@@ -86,3 +86,6 @@ export { GetUserSummaryTool, GetPostContextTool } from './composite-tools.js';
 
 // Rich media
 export { AnalyzeImageTool } from './rich-media-tools.js';
+
+// Community manager
+export { GetCommunityActivityTool } from './community-manager-tools.js';
