@@ -6,45 +6,6 @@ const COOKIE_TTL = 600;
 const CONSENT_COOKIE = "__Host-bcm_oauth_consent_v2";
 const GITHUB_STATE_COOKIE = "__Host-bcm_github_state_v2";
 const AUTH_DEBUG_KEY = "community-manager:auth-debug";
-const CHATGPT_LEGACY_CLIENT_ID = "AdDBKnyClJsAw-qM";
-const CHATGPT_LEGACY_REDIRECT_URI = "https://chatgpt.com/connector/oauth/RR_LLajCMzLQ";
-
-async function ensureChatGptClient(request: Request, env: WorkerEnv): Promise<void> {
-  const url = new URL(request.url);
-  const clientId = url.searchParams.get("client_id");
-  const redirectUri = url.searchParams.get("redirect_uri");
-  if (!clientId || !redirectUri) return;
-
-  let redirect: URL;
-  try { redirect = new URL(redirectUri); } catch { return; }
-  if (redirect.protocol !== "https:" || redirect.hostname !== "chatgpt.com" || !redirect.pathname.startsWith("/connector/oauth/")) return;
-
-  await env.OAUTH_KV.put(
-    `client:${clientId}`,
-    JSON.stringify({
-      clientId,
-      redirectUris: [redirectUri],
-      clientName: "ChatGPT",
-      grantTypes: ["authorization_code", "refresh_token"],
-      responseTypes: ["code"],
-      registrationDate: Math.floor(Date.now() / 1000),
-      tokenEndpointAuthMethod: "none",
-      authMethodExplicit: true
-    })
-  );
-
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const visible = await env.OAUTH_PROVIDER.lookupClient(clientId);
-    if (visible) {
-      await recordAuthStage(env, "oauth_client_visible");
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-
-  await recordAuthStage(env, "oauth_client_not_visible");
-  throw new Error("OAuth client registration did not become visible in time");
-}
 
 type Obj = Record<string, unknown>;
 type Session = { accessJwt: string; did: string };
@@ -109,7 +70,6 @@ function consentPage(clientName: string, csrf: string): Response { const html = 
 async function authorize(request: Request, env: WorkerEnv): Promise<Response> {
   if (request.method === "GET") {
     await recordAuthStage(env, "authorize_get");
-    await ensureChatGptClient(request, env);
     let oauthRequest: AuthRequest;
     try {
       oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
@@ -137,7 +97,7 @@ async function callback(request: Request, env: WorkerEnv): Promise<Response> { a
 const apiHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { return mcp(request, env); } };
 const defaultHandler = { async fetch(request: Request, env: WorkerEnv): Promise<Response> { const path = new URL(request.url).pathname; if (path === "/health") return json({ ok: true, service: "bluesky-community-manager", version: "0.2.2", authentication: "oauth", upstreamIdentity: "github-app", config: { githubAppClientId: Boolean(env.GITHUB_APP_CLIENT_ID), githubAppClientSecret: Boolean(env.GITHUB_APP_CLIENT_SECRET), githubAllowedLogin: Boolean(env.GITHUB_ALLOWED_LOGIN), cookieEncryptionKey: Boolean(env.COOKIE_ENCRYPTION_KEY), atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER), atprotoPassword: Boolean(env.ATPROTO_PASSWORD) } }); if (path === "/auth-debug") return authDebug(env); if (path === "/authorize") return authorize(request, env); if (path === "/callback") return callback(request, env); if (path === "/") return new Response("Bluesky Community Manager MCP server", { headers: { "Content-Type": "text/plain; charset=utf-8" } }); return new Response("Not found", { status: 404 }); } };
 
-const oauthProvider = new OAuthProvider<WorkerEnv>({ apiRoute: "/mcp", apiHandler, defaultHandler, authorizeEndpoint: "/authorize", tokenEndpoint: "/token", clientRegistrationEndpoint: "/register", clientIdMetadataDocumentEnabled: true, scopesSupported: ["bluesky.manage"], allowPlainPKCE: false, accessTokenTTL: 3600, refreshTokenTTL: 2592000, onError({ code, description, status, internal }) { console.error("OAuth provider error", { code, description, status, category: internal?.category, reason: internal?.reason }); }, resourceMetadata: { resource: "https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp", authorization_servers: ["https://bluesky-community-manager.eric-r-fraze.workers.dev"], scopes_supported: ["bluesky.manage"], bearer_methods_supported: ["header"], resource_name: "Bluesky Community Manager" } });
+const oauthProvider = new OAuthProvider<WorkerEnv>({ apiRoute: "/mcp", apiHandler, defaultHandler, authorizeEndpoint: "/authorize", tokenEndpoint: "/token", clientIdMetadataDocumentEnabled: true, scopesSupported: ["bluesky.manage"], allowPlainPKCE: false, accessTokenTTL: 3600, refreshTokenTTL: 2592000, onError({ code, description, status, internal }) { console.error("OAuth provider error", { code, description, status, category: internal?.category, reason: internal?.reason }); }, resourceMetadata: { resource: "https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp", authorization_servers: ["https://bluesky-community-manager.eric-r-fraze.workers.dev"], scopes_supported: ["bluesky.manage"], bearer_methods_supported: ["header"], resource_name: "Bluesky Community Manager" } });
 
 
 export default {
