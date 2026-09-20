@@ -23,18 +23,10 @@ export { SearchPostsTool } from './search-posts-tool.js';
 export { SearchActorsTool } from './search-actors-tool.js';
 export { GetAuthorFeedTool } from './get-author-feed-tool.js';
 export { GetTimelineTool } from './timeline-tools.js';
-export {
-  GetUserConnectionsTool,
-  GetNotificationsTool,
-  MarkNotificationsSeenTool,
-} from './social-graph-tools.js';
+export { GetUserConnectionsTool, GetNotificationsTool, MarkNotificationsSeenTool } from './social-graph-tools.js';
 
-// Direct messages (Bluesky chat service)
-export {
-  ListConversationsTool,
-  GetConversationMessagesTool,
-  SendDirectMessageTool,
-} from './dm-tools.js';
+// Direct messages
+export { ListConversationsTool, GetConversationMessagesTool, SendDirectMessageTool } from './dm-tools.js';
 
 // Content management
 export { DeletePostTool, UpdateProfileTool } from './content-management-tools.js';
@@ -43,36 +35,20 @@ export { DeletePostTool, UpdateProfileTool } from './content-management-tools.js
 export { AddBookmarkTool, RemoveBookmarkTool, GetBookmarksTool } from './bookmark-tools.js';
 
 // Content moderation
-export {
-  MuteUserTool,
-  UnmuteUserTool,
-  BlockUserTool,
-  UnblockUserTool,
-  ReportContentTool,
-  ReportUserTool,
-  AnalyzeModerationStatusTool,
-} from './moderation-tools.js';
+export { MuteUserTool, UnmuteUserTool, BlockUserTool, UnblockUserTool, ReportContentTool, ReportUserTool, AnalyzeModerationStatusTool } from './moderation-tools.js';
 
 // Advanced social features
-export {
-  CreateListTool,
-  AddToListTool,
-  RemoveFromListTool,
-  GetListTool,
-  GetCustomFeedTool,
-} from './advanced-social-tools.js';
+export { CreateListTool, AddToListTool, RemoveFromListTool, GetListTool, GetCustomFeedTool } from './advanced-social-tools.js';
 
 // Enhanced media support
 export { UploadImageTool, UploadVideoTool, GenerateLinkPreviewTool } from './media-tools.js';
 
-// Analytics and insights
+// Analytics
 export { AnalyzeAccountTool } from './analyze-account-tool.js';
 export { FindInfluentialUsersTool } from './analytics-tools.js';
 
-// Content discovery
+// Discovery
 export { FindSimilarUsersTool, DiscoverCommunitiesTool } from './content-discovery-tools.js';
-
-// Faceted timeline-driven discovery (trending + recommended)
 export { DiscoverTool } from './discover-tool.js';
 
 // Starter packs
@@ -89,3 +65,11 @@ export { AnalyzeImageTool } from './rich-media-tools.js';
 
 // Community manager
 export { GetCommunityActivityTool } from './community-manager-tools.js';
+
+// GitHub devlog integration
+export {
+  GithubGetRecentCommitsTool,
+  GithubGetCommitDetailsTool,
+  GithubGetRecentPrsTool,
+  CreateDevlogUpdateTool,
+} from './github-devlog-tools.js';
