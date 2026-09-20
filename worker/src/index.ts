@@ -20,7 +20,7 @@ const tools = [
   { name: "get_community_activity", description: "Get new Bluesky likes, followers, replies, mentions, quotes, and reposts. Uses a saved checkpoint when since is omitted. Set advanceCheckpoint only after successfully processing the response.", inputSchema: { type: "object", properties: { since: { type: "string", format: "date-time" }, limit: { type: "integer", minimum: 1, maximum: 100, default: 100 }, advanceCheckpoint: { type: "boolean", default: false } }, additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: "get_post_context", description: "Read a Bluesky post and its surrounding thread before deciding whether or how to reply.", inputSchema: { type: "object", properties: { uri: { type: "string", pattern: "^at://" }, depth: { type: "integer", minimum: 0, maximum: 20, default: 6 }, parentHeight: { type: "integer", minimum: 0, maximum: 100, default: 20 } }, required: ["uri"], additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: "reply_to_post", description: "Publish a Bluesky reply. Intended for comments or mentions on this account's own posts after inspecting the thread.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, root: { type: "string", pattern: "^at://" }, parent: { type: "string", pattern: "^at://" }, langs: { type: "array", items: { type: "string" } } }, required: ["text", "root", "parent"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },
-  { name: "create_post", description: "Publish a new standalone Bluesky post. Supports text, up to four images, or one video. Images may come from HTTPS URLs or base64 data. Video is streamed from an HTTPS URL through Bluesky's video processing service.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, images: { type: "array", maxItems: 4, items: { type: "object", properties: { url: { type: "string", format: "uri" }, base64: { type: "string" }, mimeType: { type: "string", pattern: "^image/" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 } }, additionalProperties: false } }, video: { type: "object", properties: { url: { type: "string", format: "uri" }, mimeType: { type: "string" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } }, required: ["url"], additionalProperties: false } }, required: ["text"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }
+  { name: "create_post", description: "Publish a new standalone Bluesky post. Supports text, up to four images, or one video. Images may come from HTTPS URLs or base64 data. Video is streamed from an HTTPS URL through Bluesky's video processing service.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 0, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, images: { type: "array", maxItems: 4, items: { type: "object", properties: { url: { type: "string", format: "uri" }, base64: { type: "string" }, mimeType: { type: "string", pattern: "^image/" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 } }, additionalProperties: false } }, video: { type: "object", properties: { url: { type: "string", format: "uri" }, mimeType: { type: "string" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } }, required: ["url"], additionalProperties: false }, mediaFiles: { type: "array", maxItems: 4, items: { type: "string", format: "uri" }, description: "Files attached by ChatGPT. Each item is a temporary HTTPS download URL for an image or video." } }, required: ["text"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }
 ];
 
 function json(data: unknown, status = 200, headers: HeadersInit = {}): Response { return Response.json(data, { status, headers }); }
@@ -84,6 +84,29 @@ function safeMediaName(value: string, mimeType: string): string {
   return `${clean || "video"}.${ext}`;
 }
 function sleep(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function detectRemoteMime(value: string): Promise<string> {
+  const url = new URL(value);
+  if (url.protocol !== "https:") throw new Error("Attached media URLs must use HTTPS");
+  let response = await fetch(url, { method: "HEAD", redirect: "follow" });
+  let mimeType = response.ok ? (response.headers.get("content-type") || "").split(";")[0]!.trim() : "";
+  if (!mimeType) {
+    response = await fetch(url, { method: "GET", headers: { Range: "bytes=0-0" }, redirect: "follow" });
+    mimeType = response.ok ? (response.headers.get("content-type") || "").split(";")[0]!.trim() : "";
+    try { await response.body?.cancel(); } catch {}
+  }
+  if (mimeType) return mimeType;
+  const path = url.pathname.toLowerCase();
+  if (/\.png$/.test(path)) return "image/png";
+  if (/\.jpe?g$/.test(path)) return "image/jpeg";
+  if (/\.webp$/.test(path)) return "image/webp";
+  if (/\.gif$/.test(path)) return "image/gif";
+  if (/\.mp4$/.test(path)) return "video/mp4";
+  if (/\.webm$/.test(path)) return "video/webm";
+  if (/\.mpe?g$/.test(path)) return "video/mpeg";
+  if (/\.mov$/.test(path)) return "video/quicktime";
+  throw new Error("Could not determine attached media type");
+}
 
 async function uploadImageBlob(env: WorkerEnv, auth: Session, input: unknown): Promise<Obj> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Each image must be an object");
@@ -198,12 +221,30 @@ async function uploadVideoEmbed(env: WorkerEnv, auth: Session, input: unknown): 
 }
 
 async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
-  const text = required(args, "text");
+  const text = typeof args.text === "string" ? args.text : "";
   const auth = await session(env);
-  const images = Array.isArray(args.images) ? args.images : [];
-  const hasVideo = args.video !== undefined && args.video !== null;
+  let images = Array.isArray(args.images) ? args.images : [];
+  let videoInput = args.video;
+  const mediaFiles = Array.isArray(args.mediaFiles) ? args.mediaFiles.filter(value => typeof value === "string") as string[] : [];
+
+  if (mediaFiles.length) {
+    if (images.length || videoInput !== undefined) throw new Error("Use either mediaFiles or explicit images/video, not both");
+    const detected = await Promise.all(mediaFiles.map(async url => ({ url, mimeType: await detectRemoteMime(url) })));
+    const videos = detected.filter(item => VIDEO_MIME_TYPES.has(item.mimeType));
+    const stills = detected.filter(item => item.mimeType.startsWith("image/") && item.mimeType !== "image/gif");
+    if (videos.length) {
+      if (detected.length !== 1 || videos.length !== 1) throw new Error("A Bluesky video post can contain one video and no images");
+      videoInput = videos[0];
+    } else {
+      if (stills.length !== detected.length) throw new Error("Unsupported attached media type");
+      images = stills;
+    }
+  }
+
+  const hasVideo = videoInput !== undefined && videoInput !== null;
   if (images.length > 4) throw new Error("Bluesky supports at most four images per post");
   if (images.length && hasVideo) throw new Error("A Bluesky post cannot contain both image and video embeds");
+  if (!text && !images.length && !hasVideo) throw new Error("Post must contain text or media");
 
   const record: Obj = { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString() };
   if (Array.isArray(args.langs)) record.langs = args.langs.filter(value => typeof value === "string");
@@ -212,7 +253,7 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
     for (const image of images) uploaded.push(await uploadImageBlob(env, auth, image));
     record.embed = { $type: "app.bsky.embed.images", images: uploaded };
   } else if (hasVideo) {
-    record.embed = await uploadVideoEmbed(env, auth, args.video);
+    record.embed = await uploadVideoEmbed(env, auth, videoInput);
   }
 
   const response = await xrpc<{ uri: string; cid: string }>(env, "com.atproto.repo.createRecord", {
@@ -222,7 +263,6 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
   });
   return { success: true, uri: response.uri, cid: response.cid, imageCount: images.length, hasVideo };
 }
-
 async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> { if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); if (name === "create_post") return result(await createPost(env, args)); throw new Error(`Unknown tool: ${String(name)}`); }
 async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (request.method !== "POST") return new Response("Method not allowed", { status: 405 }); const message = (await request.json()) as Obj, id = message.id ?? null; if (message.method === "initialize") return rpc(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "Bluesky Community Manager", version: "0.2.0" } }); if (message.method === "notifications/initialized") return new Response(null, { status: 202 }); if (message.method === "ping") return rpc(id, {}); if (message.method === "tools/list") return rpc(id, { tools }); if (message.method === "tools/call") { const params = (message.params ?? {}) as Obj; try { return rpc(id, await invoke(env, params.name, (params.arguments ?? {}) as Obj)); } catch (error) { return rpc(id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }); } } return json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(message.method)}` } }); }
 
