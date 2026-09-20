@@ -26,3 +26,14 @@ The MCP endpoint is `https://bluesky-community-manager.eric-r-fraze.workers.dev/
 
 Build with `npm install` and `npm run build`.
 
+## Cloudflare Git build settings
+
+When deploying this worker from Cloudflare's Git integration with the project path set to `worker`, disable Cloudflare's automatic dependency install and install explicitly in the build command:
+
+- Path: `worker`
+- Build command: `pnpm install --no-frozen-lockfile && pnpm run build`
+- Deploy command: `npx wrangler deploy`
+- Build variable: `SKIP_DEPENDENCY_INSTALL=1`
+
+This avoids Cloudflare running `pnpm install --frozen-lockfile` inside `worker/`, where there is no dedicated `pnpm-lock.yaml`.
+
