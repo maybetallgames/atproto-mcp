@@ -19,17 +19,19 @@ async function ensureChatGptClient(request: Request, env: WorkerEnv): Promise<vo
   try { redirect = new URL(redirectUri); } catch { return; }
   if (redirect.protocol !== "https:" || redirect.hostname !== "chatgpt.com" || !redirect.pathname.startsWith("/connector/oauth/")) return;
 
-  const existing = await env.OAUTH_PROVIDER.lookupClient(clientId);
-  if (existing) return;
-
-  await env.OAUTH_PROVIDER.createClient({
-    clientId,
-    redirectUris: [redirectUri],
-    clientName: "ChatGPT",
-    grantTypes: ["authorization_code", "refresh_token"],
-    responseTypes: ["code"],
-    tokenEndpointAuthMethod: "none"
-  });
+  await env.OAUTH_KV.put(
+    `client:${clientId}`,
+    JSON.stringify({
+      clientId,
+      redirectUris: [redirectUri],
+      clientName: "ChatGPT",
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      registrationDate: Math.floor(Date.now() / 1000),
+      tokenEndpointAuthMethod: "none",
+      authMethodExplicit: true
+    })
+  );
 }
 
 type Obj = Record<string, unknown>;
