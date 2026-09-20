@@ -29,6 +29,7 @@ import {
   GetBookmarksTool,
   GetConversationMessagesTool,
   GetCustomFeedTool,
+  GetCommunityActivityTool,
   GetListTool,
   GetNotificationsTool,
   GetPostContextTool,
@@ -121,6 +122,7 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new GetUserConnectionsTool(atpClient),
     () => new GetNotificationsTool(atpClient),
     () => new MarkNotificationsSeenTool(atpClient),
+    () => new GetCommunityActivityTool(atpClient),
 
     // Direct messages (chat.bsky.convo via the bsky.chat service proxy)
     () => new ListConversationsTool(atpClient),
