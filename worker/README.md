@@ -4,7 +4,8 @@ This Worker exposes an OAuth-protected MCP surface for the Bluesky community-man
 
 - `get_community_activity`
 - `get_post_context`
-- `reply_to_post` (requires `confirm: true`)
+- `reply_to_post`
+- `create_post` with text, up to 4 images, or 1 video; ChatGPT file-picker attachments are accepted through `mediaFiles`
 
 It uses Cloudflare's OAuth provider library with dynamic client registration, authorization-code flow, S256 PKCE, refresh tokens, GitHub App user authorization, a consent screen, and signed CSRF/state cookies. Only `GITHUB_ALLOWED_LOGIN` may authorize the server.
 
