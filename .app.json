@@ -1,0 +1,8 @@
+{
+  "apps": {
+    "bluesky-community-manager": {
+      "id": "asdk_app_6aaf8a9cb56881918d226b1cd948f402",
+      "required": true
+    }
+  }
+}
