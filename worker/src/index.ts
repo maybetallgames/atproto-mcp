@@ -1,4 +1,4 @@
-import { OAuthProvider, type AuthRequest, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 
 const CHECKPOINT_KEY = "community-manager:last-checked-at";
 const REASONS = new Set(["like", "follow", "reply", "mention", "quote", "repost"]);
