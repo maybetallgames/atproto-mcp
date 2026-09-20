@@ -1,6 +1,6 @@
 {
   "name": "bluesky-community-manager",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "description": "Manage Bluesky community activity and publish standalone posts, replies, images, and video through the authenticated Bluesky Community Manager MCP app.",
   "author": {
     "name": "MaybeTall Games"
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Bluesky Community Manager",
     "shortDescription": "Read Bluesky activity, publish posts, and reply to your community.",
-    "longDescription": "Use the authenticated Bluesky Community Manager MCP app to review likes, follows, replies, mentions, quotes, reposts, inspect post context, publish standalone posts with text, images, or video, and publish replies.",
+    "longDescription": "Use the authenticated Bluesky Community Manager MCP app to review likes, follows, replies, mentions, quotes, reposts, inspect post context, publish standalone posts with text, images, or video, upload ChatGPT-attached media, and publish replies.",
     "developerName": "MaybeTall Games",
     "category": "Productivity",
     "capabilities": [
