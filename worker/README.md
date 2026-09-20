@@ -20,6 +20,8 @@ Required Worker secrets:
 
 Both `STATE` and `OAUTH_KV` are KV bindings. They may point to the same namespace because their keys use separate prefixes.
 
+Short-lived consent and GitHub OAuth handoff state is kept in signed, HttpOnly cookies so authorization does not depend on KV propagation between edge locations.
+
 The MCP endpoint is `https://bluesky-community-manager.eric-r-fraze.workers.dev/mcp`. OAuth clients discover authorization metadata automatically from the Worker's well-known endpoints.
 
 Build with `npm install` and `npm run build`.
