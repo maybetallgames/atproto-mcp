@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bluesky-community-manager",
+  "version": "0.1.0",
+  "description": "Manage Bluesky community activity through the authenticated Bluesky Community Manager MCP app.",
+  "author": {
+    "name": "MaybeTall Games"
+  },
+  "repository": "https://github.com/maybetallgames/atproto-mcp",
+  "extensions": {
+    "com.openai": {
+      "apps": "./.app.json",
+      "interface": {
+        "displayName": "Bluesky Community Manager",
+        "shortDescription": "Read Bluesky activity and reply to your community.",
+        "longDescription": "Use the authenticated Bluesky Community Manager MCP app to review likes, follows, replies, mentions, quotes, reposts, inspect post context, and publish replies.",
+        "developerName": "MaybeTall Games",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ]
+      }
+    }
+  }
+}
