@@ -32,6 +32,18 @@ async function ensureChatGptClient(request: Request, env: WorkerEnv): Promise<vo
       authMethodExplicit: true
     })
   );
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const visible = await env.OAUTH_PROVIDER.lookupClient(clientId);
+    if (visible) {
+      await recordAuthStage(env, "oauth_client_visible");
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  await recordAuthStage(env, "oauth_client_not_visible");
+  throw new Error("OAuth client registration did not become visible in time");
 }
 
 type Obj = Record<string, unknown>;
