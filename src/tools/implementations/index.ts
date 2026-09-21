@@ -95,3 +95,24 @@ export {
   GithubGetRecentPrsTool,
   CreateDevlogUpdateTool,
 } from './github-devlog-tools.js';
+
+// GitHub coding workflow
+export {
+  GithubGetDiffTool,
+  GithubGetBranchStatusTool,
+  GithubCreateBranchTool,
+  GithubApplyPatchTool,
+} from './github-coding-tools.js';
+
+export {
+  GithubValidateChangeTool,
+  GithubCreatePullRequestTool,
+} from './github-pr-tools.js';
+
+export {
+  GithubCommitChangesTool,
+} from './github-commit-tools.js';
+
+export {
+  GithubCreateFixWorkflowTool,
+} from './github-fix-workflow-tools.js';

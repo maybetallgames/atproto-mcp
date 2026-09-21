@@ -7,7 +7,7 @@ export interface IGitHubAppEnv {
 }
 
 /**
- * Read-only GitHub App client used by Bluesky Bot devlog generation.
+ * GitHub App client used by Bluesky Bot and coding workflow tools.
  * Credentials are supplied by runtime environment secrets.
  */
 export class GitHubAppClient {
@@ -36,10 +36,15 @@ export class GitHubAppClient {
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${jwt}`,
-          'User-Agent': 'Bluesky-Bot-Devlog',
+          'User-Agent': 'Bluesky-Bot-GitHub-Agent',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ permissions: { contents: 'read', pull_requests: 'read' } }),
+        body: JSON.stringify({
+          permissions: {
+            contents: 'write',
+            pull_requests: 'write',
+          },
+        }),
       }
     );
 
@@ -51,14 +56,23 @@ export class GitHubAppClient {
     return data.token;
   }
 
-  async request(path: string): Promise<any> {
+  async request(
+    path: string,
+    options?: {
+      method?: string;
+      body?: string;
+    }
+  ): Promise<any> {
     const token = await this.createInstallationToken();
     const response = await fetch(`https://api.github.com${path}`, {
+      method: options?.method ?? 'GET',
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
-        'User-Agent': 'Bluesky-Bot-Devlog',
+        'User-Agent': 'Bluesky-Bot-GitHub-Agent',
+        'Content-Type': 'application/json',
       },
+      body: options?.body,
     });
 
     if (!response.ok) {
