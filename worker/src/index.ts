@@ -1,6 +1,17 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { commits, details, prs, devlog, record } from './github-devlog.js';
 
+import {
+  githubGetDiff,
+  githubGetBranchStatus,
+  githubCreateBranch,
+  githubApplyPatch,
+  githubValidateChange,
+  githubCommitChanges,
+  githubCreatePullRequest,
+  githubCreateFixWorkflow,
+} from "./github-coding.js";
+
 const CHECKPOINT_KEY = "community-manager:last-checked-at";
 const REASONS = new Set(["like", "follow", "reply", "mention", "quote", "repost"]);
 const COOKIE_TTL = 600;
@@ -29,7 +40,33 @@ const tools = [
   { name: "reply_to_post", description: "Publish a Bluesky reply. Intended for comments or mentions on this account's own posts after inspecting the thread.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 1, maxLength: 3000 }, root: { type: "string", pattern: "^at://" }, parent: { type: "string", pattern: "^at://" }, langs: { type: "array", items: { type: "string" } } }, required: ["text", "root", "parent"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },
   { name: "create_post", description: "Publish a new standalone Bluesky post. Accepts files attached directly in ChatGPT through mediaFiles, plus explicit HTTPS URLs/base64 inputs. Supports up to four images or one video.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 0, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, images: { type: "array", maxItems: 4, items: { type: "object", properties: { url: { type: "string", format: "uri" }, base64: { type: "string" }, mimeType: { type: "string", pattern: "^image/" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 } }, additionalProperties: false } }, video: { type: "object", properties: { url: { type: "string", format: "uri" }, mimeType: { type: "string" }, alt: { type: "string", maxLength: 2000, default: "" }, width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } }, required: ["url"], additionalProperties: false }, mediaFiles: { type: "array", maxItems: 4, items: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false }, description: "Files attached directly in ChatGPT. Each file is supplied by ChatGPT with a temporary HTTPS download_url and file_id." } }, additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: { "openai/fileParams": ["mediaFiles"] } },
   { name: "create_post_with_media", description: "Publish a standalone Bluesky post from files attached in ChatGPT. Use this tool for an attached video or up to four attached images.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 0, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, mediaFiles: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false }, description: "Files attached by ChatGPT. One video or up to four still images." } }, required: ["mediaFiles"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: { "openai/fileParams": ["mediaFiles"] } },
-  { name: "post_chatgpt_media", title: "Post attached media to Bluesky", description: "Publish a standalone Bluesky post using files attached in ChatGPT. This dedicated file-input tool is preferred whenever the user supplies an image or video attachment.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 0, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, mediaFiles: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false }, description: "ChatGPT file inputs. ChatGPT supplies download_url and file_id automatically; mime_type and file_name may also be supplied." } }, required: ["mediaFiles"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: { "openai/fileParams": ["mediaFiles"] } }
+  { name: "post_chatgpt_media", title: "Post attached media to Bluesky", description: "Publish a standalone Bluesky post using files attached in ChatGPT. This dedicated file-input tool is preferred whenever the user supplies an image or video attachment.", inputSchema: { type: "object", properties: { text: { type: "string", minLength: 0, maxLength: 3000 }, langs: { type: "array", items: { type: "string" } }, mediaFiles: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false }, description: "ChatGPT file inputs. ChatGPT supplies download_url and file_id automatically; mime_type and file_name may also be supplied." } }, required: ["mediaFiles"], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: { "openai/fileParams": ["mediaFiles"] } },
+  {
+  name: "github_get_diff",
+  description: "Compare GitHub branches and return changed files.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      repo: { type: "string" },
+      base: { type: "string" },
+      head: { type: "string" }
+    },
+    required: ["repo", "base", "head"]
+  }
+},
+{
+  name: "github_apply_patch",
+  description: "Apply a unified diff patch to a GitHub branch.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      repo: { type: "string" },
+      branch: { type: "string" },
+      patch: { type: "string" }
+    },
+    required: ["repo", "branch", "patch"]
+  }
+}
 ];
 
 function json(data: unknown, status = 200, headers: HeadersInit = {}): Response { return Response.json(data, { status, headers }); }
@@ -366,7 +403,34 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
   });
   return { success: true, uri: response.uri, cid: response.cid, imageCount: images.length, hasVideo };
 }
-async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> { if (name === 'github_get_recent_commits') return result(await commits(env, typeof args.since === 'string' ? args.since : undefined)); if (name === 'github_get_commit_details') return result(await details(env, required(args, 'sha'))); if (name === 'github_get_recent_prs') return result(await prs(env, typeof args.since === 'string' ? args.since : undefined)); if (name === 'create_devlog_update') return result(await devlog(env)); if (name === 'record_devlog_post') return result(await record(env, required(args, 'uri'), Array.isArray(args.commitReferences) ? args.commitReferences.filter((r): r is string => typeof r === 'string') : [])); if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); if (name === "create_post" || name === "create_post_with_media" || name === "post_chatgpt_media") return result(await createPost(env, args)); throw new Error(`Unknown tool: ${String(name)}`); }
+async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
+  
+  if (name === 'github_get_recent_commits') return result(await commits(env, typeof args.since === 'string' ? args.since : undefined)); if (name === 'github_get_commit_details') return result(await details(env, required(args, 'sha'))); if (name === 'github_get_recent_prs') return result(await prs(env, typeof args.since === 'string' ? args.since : undefined)); if (name === 'create_devlog_update') return result(await devlog(env)); if (name === 'record_devlog_post') return result(await record(env, required(args, 'uri'), Array.isArray(args.commitReferences) ? args.commitReferences.filter((r): r is string => typeof r === 'string') : [])); if (name === "get_community_activity") return result(await activity(env, args)); if (name === "get_post_context") return result(await context(env, args)); if (name === "reply_to_post") return result(await reply(env, args)); if (name === "create_post" || name === "create_post_with_media" || name === "post_chatgpt_media") return result(await createPost(env, args)); if (name === "github_get_diff")
+    return result(await githubGetDiff(env, args));
+
+  if (name === "github_get_branch_status")
+    return result(await githubGetBranchStatus(env, args));
+
+  if (name === "github_create_branch")
+    return result(await githubCreateBranch(env, args));
+
+  if (name === "github_apply_patch")
+    return result(await githubApplyPatch(env, args));
+
+  if (name === "github_validate_change")
+    return result(await githubValidateChange(env, args));
+
+  if (name === "github_commit_changes")
+    return result(await githubCommitChanges(env, args));
+
+  if (name === "github_create_pull_request")
+    return result(await githubCreatePullRequest(env, args));
+
+  if (name === "github_create_fix_workflow")
+    return result(await githubCreateFixWorkflow(env, args));
+
+  throw new Error(`Unknown tool: ${String(name)}`);
+}
 async function mcp(request: Request, env: WorkerEnv): Promise<Response> { if (request.method !== "POST") return new Response("Method not allowed", { status: 405 }); const message = (await request.json()) as Obj, id = message.id ?? null; if (message.method === "initialize") return rpc(id, { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "Bluesky Community Manager", version: "0.4.9" } }); if (message.method === "notifications/initialized") return new Response(null, { status: 202 }); if (message.method === "ping") return rpc(id, {}); if (message.method === "tools/list") return rpc(id, { tools }); if (message.method === "tools/call") { const params = (message.params ?? {}) as Obj; try { return rpc(id, await invoke(env, params.name, (params.arguments ?? {}) as Obj)); } catch (error) { return rpc(id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }); } } return json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(message.method)}` } }); }
 
 function consentPage(clientName: string, csrf: string): Response { const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize Bluesky Community Manager</title><style>body{font:16px system-ui;background:#f5f7fb;color:#172033;margin:0}.card{max-width:520px;margin:10vh auto;background:white;padding:32px;border-radius:16px;box-shadow:0 12px 40px #18243a1f}h1{font-size:25px}button{border:0;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer}.yes{background:#087bea;color:white}.no{background:#e9edf5;color:#263148;margin-left:8px}.note{color:#526077;line-height:1.5}</style></head><body><main class="card"><h1>Authorize Bluesky Community Manager</h1><p><strong>${escapeHtml(clientName)}</strong> is requesting access to this MCP server.</p><p class="note">After you continue, GitHub will verify your identity. Only the approved GitHub account can finish authorization.</p><form method="post" action="/authorize"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><button class="yes" name="decision" value="approve">Continue with GitHub</button><button class="no" name="decision" value="deny">Cancel</button></form></main></body></html>`; return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; base-uri 'none'; frame-ancestors 'none'" } }); }
