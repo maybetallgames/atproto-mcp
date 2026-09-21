@@ -28,12 +28,14 @@ export class GithubGetRecentCommitsTool implements IMcpTool {
     const commits = await client().request(
       `/repos/${repo}/commits?since=${encodeURIComponent(since)}`
     );
-    return commits.map((commit: any) => ({
-      sha: commit.sha,
-      message: commit.commit.message,
-      author: commit.commit.author?.name,
-      timestamp: commit.commit.author?.date,
-    }));
+    return {
+      result: commits.map((commit: any) => ({
+        sha: commit.sha,
+        message: commit.commit.message,
+        author: commit.commit.author?.name,
+        timestamp: commit.commit.author?.date,
+      })),
+    };
   }
 }
 
@@ -66,9 +68,11 @@ export class GithubGetRecentPrsTool implements IMcpTool {
     const pulls = await client().request(
       `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100`
     );
-    return pulls.filter(
-      (pull: any) => pull.merged_at && Date.parse(pull.merged_at) > Date.parse(since)
-    );
+    return {
+      result: pulls.filter(
+        (pull: any) => pull.merged_at && Date.parse(pull.merged_at) > Date.parse(since)
+      ),
+    };
   }
 }
 
@@ -93,10 +97,12 @@ export class CreateDevlogUpdateTool implements IMcpTool {
   };
 
   async handler({ checkpoint }: { checkpoint: string }) {
-    const [commits, pulls] = await Promise.all([
+    const [commitsResponse, pullsResponse] = await Promise.all([
       new GithubGetRecentCommitsTool().handler({ since: checkpoint }),
       new GithubGetRecentPrsTool().handler({ since: checkpoint }),
     ]);
+    const commits = commitsResponse.result;
+    const pulls = pullsResponse.result;
     const merged = pulls.filter(
       (pull: any) => pull.merged_at && Date.parse(pull.merged_at) > Date.parse(checkpoint)
     );
