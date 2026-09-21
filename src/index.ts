@@ -72,6 +72,18 @@ const TOOL_ANNOTATIONS: Readonly<Record<string, IToolAnnotations>> = {
   github_get_recent_commits: { readOnlyHint: true },
   github_get_commit_details: { readOnlyHint: true },
   github_get_recent_prs: { readOnlyHint: true },
+  github_get_diff: { readOnlyHint: true },
+  github_get_branch_status: { readOnlyHint: true },
+  github_create_fix_workflow: { readOnlyHint: true },
+  github_validate_change: { readOnlyHint: true },
+  github_create_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  github_apply_patch: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  github_commit_changes: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  github_create_pull_request: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+  },
   create_devlog_update: { readOnlyHint: true },
   // Pure read tools.
   analyze_account: { readOnlyHint: true },
