@@ -16,7 +16,85 @@ export { RepostTool, UnrepostTool } from './repost-tool.js';
 
 // User operations
 export { FollowUserTool, UnfollowUserTool } from './follow-user-tool.js';
-export { GetUserProfileTool } from './user-profile-tools.js';
+export { GetUserProfileTool } from './get-user-profile-tool.js';
+
+// Data retrieval
+export { SearchPostsTool } from './search-posts-tool.js';
+export { SearchActorsTool } from './search-actors-tool.js';
+export { GetAuthorFeedTool } from './get-author-feed-tool.js';
+export { GetTimelineTool } from './timeline-tools.js';
+export {
+  GetUserConnectionsTool,
+  GetNotificationsTool,
+  MarkNotificationsSeenTool,
+} from './social-graph-tools.js';
+
+// Direct messages
+export {
+  ListConversationsTool,
+  GetConversationMessagesTool,
+  SendDirectMessageTool,
+} from './dm-tools.js';
+
+// Content management
+export { DeletePostTool, UpdateProfileTool } from './content-management-tools.js';
+
+// Private bookmarks
+export { AddBookmarkTool, RemoveBookmarkTool, GetBookmarksTool } from './bookmark-tools.js';
+
+// Content moderation
+export {
+  MuteUserTool,
+  UnmuteUserTool,
+  BlockUserTool,
+  UnblockUserTool,
+  ReportContentTool,
+  ReportUserTool,
+  AnalyzeModerationStatusTool,
+} from './moderation-tools.js';
+
+// Advanced social features
+export {
+  CreateListTool,
+  AddToListTool,
+  RemoveFromListTool,
+  GetListTool,
+  GetCustomFeedTool,
+} from './advanced-social-tools.js';
+
+// Enhanced media support
+export { UploadImageTool, UploadVideoTool, GenerateLinkPreviewTool } from './media-tools.js';
+
+// Analytics
+export { AnalyzeAccountTool } from './analyze-account-tool.js';
+export { FindInfluentialUsersTool } from './analytics-tools.js';
+
+// Discovery
+export { FindSimilarUsersTool, DiscoverCommunitiesTool } from './content-discovery-tools.js';
+export { DiscoverTool } from './discover-tool.js';
+
+// Starter packs
+export { SearchStarterPacksTool, GetStarterPackTool } from './starter-pack-tools.js';
+
+// Batch operations
+export { BatchActionTool } from './batch-operations-tools.js';
+
+// Composite operations
+export { GetUserSummaryTool, GetPostContextTool } from './composite-tools.js';
+
+// Rich media
+export { AnalyzeImageTool } from './rich-media-tools.js';
+
+// Community manager
+export { GetCommunityActivityTool } from './community-manager-tools.js';
+
+// GitHub devlog integration
+export {
+  GithubGetRecentCommitsTool,
+  GithubGetCommitDetailsTool,
+  GithubGetRecentPrsTool,
+  CreateDevlogUpdateTool,
+} from './github-devlog-tools.js';
 
 // GitHub coding workflow
 export {
@@ -31,10 +109,10 @@ export {
   GithubCreatePullRequestTool,
 } from './github-pr-tools.js';
 
-// GitHub devlog integration
 export {
-  GithubGetRecentCommitsTool,
-  GithubGetCommitDetailsTool,
-  GithubGetRecentPrsTool,
-  CreateDevlogUpdateTool,
-} from './github-devlog-tools.js';
+  GithubCommitChangesTool,
+} from './github-commit-tools.js';
+
+export {
+  GithubCreateFixWorkflowTool,
+} from './github-fix-workflow-tools.js';
