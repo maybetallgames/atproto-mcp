@@ -10,6 +10,8 @@ export interface FilePatch {
   oldPath: string;
   newPath: string;
   hunks: PatchHunk[];
+  isNewFile: boolean;
+  isDeletedFile: boolean;
 }
 
 export function parseUnifiedDiff(diff: string): FilePatch[] {
@@ -18,10 +20,17 @@ export function parseUnifiedDiff(diff: string): FilePatch[] {
 
   for (const chunk of chunks) {
     const lines = chunk.split('\n');
-    const oldPath = lines.find((line) => line.startsWith('--- a/'))?.slice(6).trim();
-    const newPath = lines.find((line) => line.startsWith('+++ b/'))?.slice(6).trim();
+    const oldHeader = lines.find((line) => line.startsWith('--- '));
+    const newHeader = lines.find((line) => line.startsWith('+++ '));
 
-    if (!oldPath || !newPath) continue;
+    if (!oldHeader || !newHeader) continue;
+
+    const oldPath = oldHeader.includes('/dev/null')
+      ? '/dev/null'
+      : oldHeader.replace('--- a/', '').trim();
+    const newPath = newHeader.includes('/dev/null')
+      ? '/dev/null'
+      : newHeader.replace('+++ b/', '').trim();
 
     const hunks: PatchHunk[] = [];
     let current: PatchHunk | null = null;
@@ -45,14 +54,20 @@ export function parseUnifiedDiff(diff: string): FilePatch[] {
       }
     }
 
-    files.push({ oldPath, newPath, hunks });
+    files.push({
+      oldPath,
+      newPath,
+      hunks,
+      isNewFile: oldPath === '/dev/null',
+      isDeletedFile: newPath === '/dev/null',
+    });
   }
 
   return files;
 }
 
 export function applyUnifiedPatch(original: string, hunks: PatchHunk[]): string {
-  const source = original.split('\n');
+  const source = original ? original.split('\n') : [];
   const output: string[] = [];
   let sourceIndex = 0;
 
