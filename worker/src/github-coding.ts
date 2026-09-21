@@ -65,39 +65,39 @@ async function github<T>(env: Env, path: string, init: RequestInit = {}): Promis
 }
 
 function parsePatch(diff: string): FilePatch[] {
-  return diff
-    .split(/^diff --git /gm)
-    .filter(Boolean)
-    .flatMap(chunk => {
-      const lines = chunk.split('\n');
-      const oldHeader = lines.find(line => line.startsWith('--- '));
-      const newHeader = lines.find(line => line.startsWith('+++ '));
-      if (!oldHeader || !newHeader) return [];
-      const oldPath = oldHeader.includes('/dev/null')
-        ? '/dev/null'
-        : oldHeader.replace('--- a/', '').trim();
-      const newPath = newHeader.includes('/dev/null')
-        ? '/dev/null'
-        : newHeader.replace('+++ b/', '').trim();
-      const hunks: Hunk[] = [];
-      let current: Hunk | undefined;
-      for (const line of lines) {
-        const match = line.match(/^@@ -(\d+),?\d* \+\d+,?\d* @@/);
-        if (match) {
-          current = { oldStart: Number(match[1]), lines: [] };
-          hunks.push(current);
-        } else if (current && /^[ +\-]/.test(line)) current.lines.push(line);
-      }
-      return [
-        {
-          oldPath,
-          newPath,
-          hunks,
-          isNew: oldPath === '/dev/null',
-          isDeleted: newPath === '/dev/null',
-        },
-      ];
-    });
+  const chunks = /^diff --git /m.test(diff) ? diff.split(/^diff --git /gm).filter(Boolean) : [diff];
+  return chunks.flatMap(chunk => {
+    const lines = chunk.split('\n');
+    const oldHeader = lines.find(line => line.startsWith('--- '));
+    const newHeader = lines.find(line => line.startsWith('+++ '));
+    if (!oldHeader || !newHeader) return [];
+    const oldRaw = oldHeader.slice(3).trim().split('\t', 1)[0] ?? '';
+    const newRaw = newHeader.slice(3).trim().split('\t', 1)[0] ?? '';
+    const oldPath = oldRaw === '/dev/null' ? oldRaw : oldRaw.replace(/^a\//, '');
+    const newPath = newRaw === '/dev/null' ? newRaw : newRaw.replace(/^b\//, '');
+    const hunks: Hunk[] = [];
+    let current: Hunk | undefined;
+    for (const line of lines) {
+      const match = line.match(/^@@ -(\d+),?\d* \+\d+,?\d* @@/);
+      if (match) {
+        current = { oldStart: Number(match[1]), lines: [] };
+        hunks.push(current);
+      } else if (current && /^[ +\-]/.test(line)) current.lines.push(line);
+    }
+    if (hunks.length === 0)
+      throw new Error(
+        `Patch for ${newPath === '/dev/null' ? oldPath : newPath} has no valid hunks`
+      );
+    return [
+      {
+        oldPath,
+        newPath,
+        hunks,
+        isNew: oldPath === '/dev/null',
+        isDeleted: newPath === '/dev/null',
+      },
+    ];
+  });
 }
 
 function applyPatch(original: string, hunks: Hunk[]): string {

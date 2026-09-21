@@ -14,9 +14,15 @@ export interface IFilePatch {
   isDeletedFile: boolean;
 }
 
+const parseHeaderPath = (header: string, marker: '---' | '+++', prefix: 'a/' | 'b/'): string => {
+  const path = header.slice(marker.length).trim().split('\t', 1)[0] ?? '';
+  if (path === '/dev/null') return path;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+};
+
 export function parseUnifiedDiff(diff: string): IFilePatch[] {
   const files: IFilePatch[] = [];
-  const chunks = diff.split(/^diff --git /gm).filter(Boolean);
+  const chunks = /^diff --git /m.test(diff) ? diff.split(/^diff --git /gm).filter(Boolean) : [diff];
 
   for (const chunk of chunks) {
     const lines = chunk.split('\n');
@@ -25,12 +31,8 @@ export function parseUnifiedDiff(diff: string): IFilePatch[] {
 
     if (!oldHeader || !newHeader) continue;
 
-    const oldPath = oldHeader.includes('/dev/null')
-      ? '/dev/null'
-      : oldHeader.replace('--- a/', '').trim();
-    const newPath = newHeader.includes('/dev/null')
-      ? '/dev/null'
-      : newHeader.replace('+++ b/', '').trim();
+    const oldPath = parseHeaderPath(oldHeader, '---', 'a/');
+    const newPath = parseHeaderPath(newHeader, '+++', 'b/');
 
     const hunks: IPatchHunk[] = [];
     let current: IPatchHunk | null = null;
@@ -52,6 +54,12 @@ export function parseUnifiedDiff(diff: string): IFilePatch[] {
       if (current && /^[ +-]/.test(line)) {
         current.lines.push(line);
       }
+    }
+
+    if (hunks.length === 0) {
+      throw new Error(
+        `Patch for ${newPath === '/dev/null' ? oldPath : newPath} has no valid hunks`
+      );
     }
 
     files.push({

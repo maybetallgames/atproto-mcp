@@ -26,4 +26,23 @@ describe('GitHub unified patches', () => {
     );
     expect(() => applyUnifiedPatch('other', file!.hunks)).toThrow('Patch removal mismatch');
   });
+
+  it('accepts unprefixed paths and a patch without a diff --git header', () => {
+    const [file] = parseUnifiedDiff(
+      '--- Assets/MayBeTall/LobbyManager.cs\n+++ Assets/MayBeTall/LobbyManager.cs\n@@ -1 +1,2 @@\n existing\n+using System.Collections;'
+    );
+    expect(file).toMatchObject({
+      oldPath: 'Assets/MayBeTall/LobbyManager.cs',
+      newPath: 'Assets/MayBeTall/LobbyManager.cs',
+    });
+    expect(applyUnifiedPatch('existing', file!.hunks)).toBe('existing\nusing System.Collections;');
+  });
+
+  it('rejects shorthand @@ markers with a useful error', () => {
+    expect(() =>
+      parseUnifiedDiff(
+        '--- Assets/MayBeTall/LobbyManager.cs\n+++ Assets/MayBeTall/LobbyManager.cs\n@@\n+using System.Collections;'
+      )
+    ).toThrow('has no valid hunks');
+  });
 });
