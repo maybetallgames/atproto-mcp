@@ -62,16 +62,14 @@ async function installationToken(env: Env): Promise<string> {
 }
 
 async function github<T>(env: Env, path: string, init: RequestInit = {}): Promise<T> {
-  const extraHeaders = Object.fromEntries(new Headers(init.headers).entries());
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${await installationToken(env)}`);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/vnd.github+json');
+  headers.set('Content-Type', 'application/json');
+  headers.set('User-Agent', 'Bluesky-Community-Manager');
   const response = await fetch(`https://api.github.com${path}`, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${await installationToken(env)}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Bluesky-Community-Manager',
-      ...extraHeaders,
-    },
+    headers,
   });
   if (!response.ok)
     throw new Error(`GitHub API failed (${response.status}): ${await response.text()}`);
