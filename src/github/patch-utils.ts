@@ -1,4 +1,4 @@
-export interface PatchHunk {
+export interface IPatchHunk {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -6,22 +6,22 @@ export interface PatchHunk {
   lines: string[];
 }
 
-export interface FilePatch {
+export interface IFilePatch {
   oldPath: string;
   newPath: string;
-  hunks: PatchHunk[];
+  hunks: IPatchHunk[];
   isNewFile: boolean;
   isDeletedFile: boolean;
 }
 
-export function parseUnifiedDiff(diff: string): FilePatch[] {
-  const files: FilePatch[] = [];
+export function parseUnifiedDiff(diff: string): IFilePatch[] {
+  const files: IFilePatch[] = [];
   const chunks = diff.split(/^diff --git /gm).filter(Boolean);
 
   for (const chunk of chunks) {
     const lines = chunk.split('\n');
-    const oldHeader = lines.find((line) => line.startsWith('--- '));
-    const newHeader = lines.find((line) => line.startsWith('+++ '));
+    const oldHeader = lines.find(line => line.startsWith('--- '));
+    const newHeader = lines.find(line => line.startsWith('+++ '));
 
     if (!oldHeader || !newHeader) continue;
 
@@ -32,24 +32,24 @@ export function parseUnifiedDiff(diff: string): FilePatch[] {
       ? '/dev/null'
       : newHeader.replace('+++ b/', '').trim();
 
-    const hunks: PatchHunk[] = [];
-    let current: PatchHunk | null = null;
+    const hunks: IPatchHunk[] = [];
+    let current: IPatchHunk | null = null;
 
     for (const line of lines) {
       const match = line.match(/^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
       if (match) {
         current = {
           oldStart: Number(match[1]),
-          oldCount: Number(match[2] || 1),
+          oldCount: Number(match[2] === '' ? 1 : match[2]),
           newStart: Number(match[3]),
-          newCount: Number(match[4] || 1),
+          newCount: Number(match[4] === '' ? 1 : match[4]),
           lines: [],
         };
         hunks.push(current);
         continue;
       }
 
-      if (current && /^[ +\-]/.test(line)) {
+      if (current && /^[ +-]/.test(line)) {
         current.lines.push(line);
       }
     }
@@ -66,7 +66,7 @@ export function parseUnifiedDiff(diff: string): FilePatch[] {
   return files;
 }
 
-export function applyUnifiedPatch(original: string, hunks: PatchHunk[]): string {
+export function applyUnifiedPatch(original: string, hunks: IPatchHunk[]): string {
   const source = original ? original.split('\n') : [];
   const output: string[] = [];
   let sourceIndex = 0;
@@ -75,7 +75,9 @@ export function applyUnifiedPatch(original: string, hunks: PatchHunk[]): string 
     const target = hunk.oldStart - 1;
 
     while (sourceIndex < target) {
-      output.push(source[sourceIndex++]);
+      const line = source[sourceIndex++];
+      if (line === undefined) throw new Error('Patch hunk starts beyond the end of the file');
+      output.push(line);
     }
 
     for (const line of hunk.lines) {
@@ -100,7 +102,8 @@ export function applyUnifiedPatch(original: string, hunks: PatchHunk[]): string 
   }
 
   while (sourceIndex < source.length) {
-    output.push(source[sourceIndex++]);
+    const line = source[sourceIndex++];
+    if (line !== undefined) output.push(line);
   }
 
   return output.join('\n');

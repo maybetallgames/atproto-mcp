@@ -10,13 +10,17 @@ import type { IMcpTool } from '../index.js';
 export class GithubCreateFixWorkflowTool implements IMcpTool {
   schema = {
     method: 'github_create_fix_workflow',
-    description: 'Describe a safe GitHub fix workflow request before executing branch, patch, validation, commit, and PR steps.',
+    description:
+      'Describe a safe GitHub fix workflow request before executing branch, patch, validation, commit, and PR steps.',
     params: z.object({
-      repo: z.string(),
-      branch: z.string(),
-      base: z.string(),
-      summary: z.string(),
-      allowedFiles: z.array(z.string()).optional(),
+      repo: z.string().describe('GitHub repository in owner/name form.'),
+      branch: z.string().describe('Feature branch for the fix.'),
+      base: z.string().describe('Base branch for the fix.'),
+      summary: z.string().describe('Short description of the intended fix.'),
+      allowedFiles: z
+        .array(z.string())
+        .optional()
+        .describe('Optional allowlist of repository paths.'),
     }),
     outputSchema: { type: 'object', additionalProperties: true },
   };
