@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GitHubAppClient } from '../../github/github-client.js';
+import { GitTreeService } from '../../github/git-tree-service.js';
 import { parseUnifiedDiff, applyUnifiedPatch } from '../../github/patch-utils.js';
 import type { IMcpTool } from '../index.js';
 
@@ -40,6 +41,7 @@ export class GithubApplyPatchTool implements IMcpTool {
 
   async handler(params: { repo: string; branch: string; patch: string; message?: string }) {
     const github = client();
+    const gitTree = new GitTreeService(github);
     const files = parseUnifiedDiff(params.patch);
     const branch = await github.request(`/repos/${params.repo}/branches/${encodeURIComponent(params.branch)}`);
 
@@ -50,10 +52,7 @@ export class GithubApplyPatchTool implements IMcpTool {
       const original = Buffer.from(current.content, 'base64').toString('utf8');
       const updated = applyUnifiedPatch(original, file.hunks);
 
-      const blob = await github.request(`/repos/${params.repo}/git/blobs`, {
-        method: 'POST',
-        body: JSON.stringify({ content: updated, encoding: 'utf-8' }),
-      });
+      const blob = await gitTree.createBlob(params.repo, updated);
 
       treeEntries.push({
         path: file.newPath,
@@ -63,23 +62,12 @@ export class GithubApplyPatchTool implements IMcpTool {
       });
     }
 
-    const tree = await github.request(`/repos/${params.repo}/git/trees`, {
-      method: 'POST',
-      body: JSON.stringify({ tree: treeEntries }),
-    });
-
-    const commit = await github.request(`/repos/${params.repo}/git/commits`, {
-      method: 'POST',
-      body: JSON.stringify({
-        message: params.message ?? 'Apply patch',
-        tree: tree.sha,
-        parents: [branch.commit.sha],
-      }),
-    });
-
-    await github.request(`/repos/${params.repo}/git/refs/heads/${encodeURIComponent(params.branch)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ sha: commit.sha }),
+    const commit = await gitTree.createCommitFromTree({
+      repo: params.repo,
+      branch: params.branch,
+      message: params.message ?? 'Apply patch',
+      treeEntries,
+      parentSha: branch.commit.sha,
     });
 
     return {
