@@ -74,13 +74,44 @@ export function parseUnifiedDiff(diff: string): IFilePatch[] {
   return files;
 }
 
+const hunkMatchesAt = (source: string[], hunk: IPatchHunk, index: number): boolean => {
+  let sourceIndex = index;
+
+  for (const line of hunk.lines) {
+    if (line[0] !== '+' && source[sourceIndex++] !== line.slice(1)) return false;
+  }
+
+  return true;
+};
+
+const findHunkTarget = (source: string[], hunk: IPatchHunk, minimum: number): number => {
+  const expected = Math.max(minimum, hunk.oldStart - 1);
+  if (hunkMatchesAt(source, hunk, expected)) return expected;
+
+  const matches: number[] = [];
+  for (let index = minimum; index <= source.length; index++) {
+    if (hunkMatchesAt(source, hunk, index)) matches.push(index);
+  }
+
+  if (matches.length === 1) return matches[0]!;
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Patch context is ambiguous: hunk expected near line ${hunk.oldStart} matches ${matches.length} locations`
+    );
+  }
+
+  throw new Error(`Patch context mismatch near line ${hunk.oldStart}`);
+};
+
 export function applyUnifiedPatch(original: string, hunks: IPatchHunk[]): string {
-  const source = original ? original.split('\n') : [];
+  const lineEnding = original.includes('\r\n') ? '\r\n' : '\n';
+  const source = original ? original.replace(/\r\n/g, '\n').split('\n') : [];
   const output: string[] = [];
   let sourceIndex = 0;
 
   for (const hunk of hunks) {
-    const target = hunk.oldStart - 1;
+    const target = findHunkTarget(source, hunk, sourceIndex);
 
     while (sourceIndex < target) {
       const line = source[sourceIndex++];
@@ -93,15 +124,9 @@ export function applyUnifiedPatch(original: string, hunks: IPatchHunk[]): string
       const content = line.slice(1);
 
       if (type === ' ') {
-        if (source[sourceIndex] !== content) {
-          throw new Error(`Patch context mismatch at line ${sourceIndex + 1}`);
-        }
         output.push(content);
         sourceIndex++;
       } else if (type === '-') {
-        if (source[sourceIndex] !== content) {
-          throw new Error(`Patch removal mismatch at line ${sourceIndex + 1}`);
-        }
         sourceIndex++;
       } else if (type === '+') {
         output.push(content);
@@ -114,5 +139,5 @@ export function applyUnifiedPatch(original: string, hunks: IPatchHunk[]): string
     if (line !== undefined) output.push(line);
   }
 
-  return output.join('\n');
+  return output.join(lineEnding);
 }

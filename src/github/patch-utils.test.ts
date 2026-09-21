@@ -20,6 +20,34 @@ describe('GitHub unified patches', () => {
     expect(applyUnifiedPatch('old', files[1]!.hunks)).toBe('');
   });
 
+  it('relocates a hunk when preceding edits make its line number stale', () => {
+    const [file] = parseUnifiedDiff(
+      '--- a/a.txt\n+++ b/a.txt\n@@ -2,2 +2,2 @@\n target\n-old\n+new'
+    );
+    expect(file).toBeDefined();
+    expect(applyUnifiedPatch('inserted\nelsewhere\ntarget\nold', file!.hunks)).toBe(
+      'inserted\nelsewhere\ntarget\nnew'
+    );
+  });
+
+  it('preserves CRLF line endings while matching LF patch context', () => {
+    const [file] = parseUnifiedDiff(
+      '--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three'
+    );
+    expect(file).toBeDefined();
+    expect(applyUnifiedPatch('one\r\ntwo', file!.hunks)).toBe('one\r\nthree');
+  });
+
+  it('rejects ambiguous relocated context', () => {
+    const [file] = parseUnifiedDiff(
+      '--- a/a.txt\n+++ b/a.txt\n@@ -20 +20 @@\n-old\n+new'
+    );
+    expect(file).toBeDefined();
+    expect(() => applyUnifiedPatch('old\nother\nold', file!.hunks)).toThrow(
+      'Patch context is ambiguous'
+    );
+  });
+
   it('rejects mismatched context', () => {
     const [file] = parseUnifiedDiff(
       'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-nope\n+yes'
