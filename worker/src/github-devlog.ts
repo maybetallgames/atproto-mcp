@@ -21,32 +21,10 @@ type State = {
   posts: { uri: string; commitReferences: string[] }[];
 };
 const KEY = 'devlog:checkpoint';
-const encode = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
-    .replaceAll('+', '-')
-    .replaceAll('/', '_')
-    .replaceAll('=', '');
 async function token(env: Env): Promise<string> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_PRIVATE_KEY || !env.GITHUB_INSTALLATION_ID)
     throw new Error('GitHub App secrets missing');
-  const now = Math.floor(Date.now() / 1000),
-    utf = new TextEncoder();
-  const header = encode(utf.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
-  const payload = encode(
-    utf.encode(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.GITHUB_APP_ID }))
-  );
-  const pem = env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n').replace(
-    /-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,
-    ''
-  );
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    Uint8Array.from(atob(pem), c => c.charCodeAt(0)),
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const jwt = `${header}.${payload}.${encode(new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, utf.encode(`${header}.${payload}`))))}`;
+  const jwt = await createGitHubAppJwt(env);
   const response = await fetch(
     `https://api.github.com/app/installations/${env.GITHUB_INSTALLATION_ID}/access_tokens`,
     {
@@ -160,3 +138,4 @@ export async function record(env: Env, uri: string, refs: string[]): Promise<Sta
   await env.STATE.put(KEY, JSON.stringify(updated));
   return updated;
 }
+import { createGitHubAppJwt } from './github-auth.js';
