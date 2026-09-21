@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { GitHubAppClient } from '../../github/github-client.js';
-import { GitTreeService } from '../../github/git-tree-service.js';
 import { applyUnifiedPatch, parseUnifiedDiff } from '../../github/patch-utils.js';
 import type { IMcpTool } from '../index.js';
 
@@ -93,9 +92,11 @@ export class GithubCreateBranchTool implements IMcpTool {
 }
 
 export class GithubApplyPatchTool implements IMcpTool {
+  constructor(private readonly github: Pick<GitHubAppClient, 'request'> = client()) {}
+
   schema = {
     method: 'github_apply_patch',
-    description: 'Apply a unified diff patch and commit the result to a branch.',
+    description: 'Apply a unified diff patch and prepare a Git tree for review and commit.',
     params: z.object({
       repo: z.string().describe('GitHub repository in owner/name form.'),
       branch: z.string().describe('Existing branch to update.'),
@@ -106,8 +107,7 @@ export class GithubApplyPatchTool implements IMcpTool {
   };
 
   async handler(params: { repo: string; branch: string; patch: string; message?: string }) {
-    const github = client();
-    const gitTree = new GitTreeService(github);
+    const github = this.github;
     const files = parseUnifiedDiff(params.patch);
     if (files.length === 0) throw new Error('Patch does not contain any file changes');
     const branch = await github.request(
@@ -131,7 +131,10 @@ export class GithubApplyPatchTool implements IMcpTool {
       }
 
       const updated = applyUnifiedPatch(original, file.hunks);
-      const blob = await gitTree.createBlob(params.repo, updated);
+      const blob = await github.request(`/repos/${params.repo}/git/blobs`, {
+        method: 'POST',
+        body: JSON.stringify({ content: updated, encoding: 'utf-8' }),
+      });
 
       treeEntries.push({
         path: file.newPath,
@@ -145,17 +148,22 @@ export class GithubApplyPatchTool implements IMcpTool {
       }
     }
 
-    const commit = await gitTree.createCommitFromTree({
-      repo: params.repo,
-      branch: params.branch,
-      message: params.message ?? 'Apply patch',
-      treeEntries,
-      parentSha: branch.commit.sha,
+    const tree = await github.request(`/repos/${params.repo}/git/trees`, {
+      method: 'POST',
+      body: JSON.stringify({
+        base_tree: branch.commit.commit.tree.sha,
+        tree: treeEntries,
+      }),
     });
+    if (tree.sha === branch.commit.commit.tree.sha) {
+      throw new Error('Patch produced no file changes; refusing to create an empty commit');
+    }
 
     return {
-      accepted: true,
-      commit: commit.sha,
+      prepared: true,
+      treeSha: tree.sha,
+      parentSha: branch.commit.sha,
+      message: params.message ?? 'Apply patch',
       files: files.map(file => (file.isDeletedFile ? file.oldPath : file.newPath)),
     };
   }

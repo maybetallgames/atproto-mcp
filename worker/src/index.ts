@@ -340,7 +340,7 @@ const tools = [
   },
   {
     name: 'github_apply_patch',
-    description: 'Apply a unified diff patch to a GitHub branch.',
+    description: 'Apply a unified diff patch and prepare a Git tree for review and commit.',
     inputSchema: {
       type: 'object',
       properties: {

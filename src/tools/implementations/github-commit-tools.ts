@@ -10,6 +10,8 @@ const client = () =>
   });
 
 export class GithubCommitChangesTool implements IMcpTool {
+  constructor(private readonly github: Pick<GitHubAppClient, 'request'> = client()) {}
+
   schema = {
     method: 'github_commit_changes',
     description: 'Create a commit after preparing repository changes.',
@@ -30,7 +32,14 @@ export class GithubCommitChangesTool implements IMcpTool {
     treeSha: string;
     parentSha: string;
   }) {
-    const commit = await client().request(`/repos/${params.repo}/git/commits`, {
+    const github = this.github;
+    const parent = await github.request(`/repos/${params.repo}/git/commits/${params.parentSha}`);
+    if (parent.tree.sha === params.treeSha) {
+      throw new Error(
+        'Prepared tree matches the parent commit; refusing to create an empty commit'
+      );
+    }
+    const commit = await github.request(`/repos/${params.repo}/git/commits`, {
       method: 'POST',
       body: JSON.stringify({
         message: params.message,
@@ -39,7 +48,7 @@ export class GithubCommitChangesTool implements IMcpTool {
       }),
     });
 
-    await client().request(
+    await github.request(
       `/repos/${params.repo}/git/refs/heads/${encodeURIComponent(params.branch)}`,
       {
         method: 'PATCH',

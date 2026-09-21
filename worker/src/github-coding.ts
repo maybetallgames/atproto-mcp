@@ -210,13 +210,15 @@ export async function githubApplyPatch(env: Env, args: Obj) {
     method: 'POST',
     body: JSON.stringify({ base_tree: branch.commit.commit.tree.sha, tree }),
   });
-  return githubCommitChanges(env, {
-    repo,
-    branch: branchName,
-    message: typeof args.message === 'string' ? args.message : 'Apply patch',
+  if (madeTree.sha === branch.commit.commit.tree.sha)
+    throw new Error('Patch produced no file changes; refusing to create an empty commit');
+  return {
+    prepared: true,
     treeSha: madeTree.sha,
     parentSha: branch.commit.sha,
-  });
+    message: typeof args.message === 'string' ? args.message : 'Apply patch',
+    files: files.map(file => (file.isDeleted ? file.oldPath : file.newPath)),
+  };
 }
 export async function githubValidateChange(_env: Env, args: Obj) {
   const files = Array.isArray(args.files)
@@ -236,12 +238,20 @@ export async function githubValidateChange(_env: Env, args: Obj) {
 export async function githubCommitChanges(env: Env, args: Obj) {
   const repo = repoName(args),
     branch = required(args, 'branch');
+  const treeSha = required(args, 'treeSha');
+  const parentSha = required(args, 'parentSha');
+  const parent = await github<{ tree: { sha: string } }>(
+    env,
+    `/repos/${repo}/git/commits/${parentSha}`
+  );
+  if (parent.tree.sha === treeSha)
+    throw new Error('Prepared tree matches the parent commit; refusing to create an empty commit');
   const commit = await github<{ sha: string }>(env, `/repos/${repo}/git/commits`, {
     method: 'POST',
     body: JSON.stringify({
       message: required(args, 'message'),
-      tree: required(args, 'treeSha'),
-      parents: [required(args, 'parentSha')],
+      tree: treeSha,
+      parents: [parentSha],
     }),
   });
   await github(env, `/repos/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
