@@ -54,6 +54,11 @@ const tools = [
       properties: { since: { type: 'string', format: 'date-time' } },
       additionalProperties: false,
     },
+    outputSchema: {
+      type: 'object',
+      properties: { result: { type: 'array', items: { type: 'object' } } },
+      required: ['result'],
+    },
     annotations: { readOnlyHint: true },
   },
   {
@@ -74,6 +79,11 @@ const tools = [
       type: 'object',
       properties: { since: { type: 'string', format: 'date-time' } },
       additionalProperties: false,
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { result: { type: 'array', items: { type: 'object' } } },
+      required: ['result'],
     },
     annotations: { readOnlyHint: true },
   },
@@ -1054,11 +1064,15 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
 }
 async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
   if (name === 'github_get_recent_commits')
-    return result(await commits(env, typeof args.since === 'string' ? args.since : undefined));
+    return result({
+      result: await commits(env, typeof args.since === 'string' ? args.since : undefined),
+    });
   if (name === 'github_get_commit_details')
     return result(await details(env, required(args, 'sha')));
   if (name === 'github_get_recent_prs')
-    return result(await prs(env, typeof args.since === 'string' ? args.since : undefined));
+    return result({
+      result: await prs(env, typeof args.since === 'string' ? args.since : undefined),
+    });
   if (name === 'create_devlog_update') return result(await devlog(env));
   if (name === 'record_devlog_post')
     return result(
