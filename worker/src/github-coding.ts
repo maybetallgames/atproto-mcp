@@ -1,3 +1,5 @@
+import { createGitHubAppJwt } from './github-auth.js';
+
 type Obj = Record<string, unknown>;
 type Env = {
   GITHUB_APP_ID: string;
@@ -253,4 +255,3 @@ export async function githubCreateFixWorkflow(_env: Env, args: Obj) {
     ],
   };
 }
-import { createGitHubAppJwt } from './github-auth.js';

@@ -1,3 +1,5 @@
+import { createGitHubAppJwt } from './github-auth.js';
+
 export type Env = {
   GITHUB_APP_ID: string;
   GITHUB_PRIVATE_KEY: string;
@@ -138,4 +140,3 @@ export async function record(env: Env, uri: string, refs: string[]): Promise<Sta
   await env.STATE.put(KEY, JSON.stringify(updated));
   return updated;
 }
-import { createGitHubAppJwt } from './github-auth.js';

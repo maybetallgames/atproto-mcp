@@ -38,7 +38,7 @@ const decodeBase64 = (value: string): Uint8Array => {
 };
 
 export function githubPrivateKeyToPkcs8(privateKey: string): Uint8Array {
-  let normalized = privateKey.trim().replace(/\\r?\\n/g, '\n');
+  let normalized = privateKey.trim().replace(/\\(?:r\\n|n)/g, '\n');
   if (
     (normalized.startsWith('"') && normalized.endsWith('"')) ||
     (normalized.startsWith("'") && normalized.endsWith("'"))
@@ -46,7 +46,7 @@ export function githubPrivateKeyToPkcs8(privateKey: string): Uint8Array {
     normalized = normalized
       .slice(1, -1)
       .trim()
-      .replace(/\\r?\\n/g, '\n');
+      .replace(/\\(?:r\\n|n)/g, '\n');
   }
 
   const pkcs1 = normalized.includes('-----BEGIN RSA PRIVATE KEY-----');
