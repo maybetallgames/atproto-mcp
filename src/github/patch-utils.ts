@@ -68,9 +68,15 @@ export function applyUnifiedPatch(original: string, hunks: PatchHunk[]): string 
       const content = line.slice(1);
 
       if (type === ' ') {
+        if (source[sourceIndex] !== content) {
+          throw new Error(`Patch context mismatch at line ${sourceIndex + 1}`);
+        }
         output.push(content);
         sourceIndex++;
       } else if (type === '-') {
+        if (source[sourceIndex] !== content) {
+          throw new Error(`Patch removal mismatch at line ${sourceIndex + 1}`);
+        }
         sourceIndex++;
       } else if (type === '+') {
         output.push(content);
