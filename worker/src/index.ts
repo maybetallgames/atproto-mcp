@@ -1,8 +1,10 @@
 import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provider';
-import { commits, details, prs, devlog, record } from './github-devlog.js';
+import { commits, details, prs, recentActivity, devlog, record } from './github-devlog.js';
 
 import {
   githubGetFile,
+  githubFindInFile,
+  githubSearchCode,
   githubGetDiff,
   githubGetBranchStatus,
   githubCreateBranch,
@@ -11,6 +13,7 @@ import {
   githubCommitChanges,
   githubCreatePullRequest,
   githubMergePullRequest,
+  githubSubmitPatchWorkflow,
   githubCreateFixWorkflow,
 } from './github-coding.js';
 
@@ -48,10 +51,13 @@ type WorkerEnv = {
 const tools = [
   {
     name: 'github_get_recent_commits',
-    description: 'Read recent Lets Dive commits.',
+    description: 'Read compact recent Lets Dive commit summaries.',
     inputSchema: {
       type: 'object',
-      properties: { since: { type: 'string', format: 'date-time' } },
+      properties: {
+        since: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+      },
       additionalProperties: false,
     },
     outputSchema: {
@@ -63,10 +69,15 @@ const tools = [
   },
   {
     name: 'github_get_commit_details',
-    description: 'Read changed files for a Lets Dive commit.',
+    description:
+      'Read compact changed-file metadata for a Lets Dive commit. Patch text is opt-in and size-capped.',
     inputSchema: {
       type: 'object',
-      properties: { sha: { type: 'string' } },
+      properties: {
+        sha: { type: 'string' },
+        includePatch: { type: 'boolean', default: false },
+        maxChars: { type: 'integer', minimum: 1000, maximum: 50000, default: 12000 },
+      },
       required: ['sha'],
       additionalProperties: false,
     },
@@ -74,10 +85,13 @@ const tools = [
   },
   {
     name: 'github_get_recent_prs',
-    description: 'Read recently merged Lets Dive pull requests.',
+    description: 'Read compact recently merged Lets Dive pull request summaries.',
     inputSchema: {
       type: 'object',
-      properties: { since: { type: 'string', format: 'date-time' } },
+      properties: {
+        since: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+      },
       additionalProperties: false,
     },
     outputSchema: {
@@ -86,6 +100,21 @@ const tools = [
       required: ['result'],
     },
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'github_get_recent_activity',
+    description:
+      'Read compact commits and merged PRs together, deduplicating merge commits. Uses a saved checkpoint when since is omitted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+        advanceCheckpoint: { type: 'boolean', default: false },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'create_devlog_update',
@@ -318,13 +347,17 @@ const tools = [
   },
   {
     name: 'github_get_file',
-    description: 'Read a UTF-8 text file from a GitHub repository at a branch, tag, or commit.',
+    description:
+      'Read a UTF-8 GitHub file with optional line ranges and a default response-size cap.',
     inputSchema: {
       type: 'object',
       properties: {
         repo: { type: 'string' },
         path: { type: 'string', minLength: 1 },
         ref: { type: 'string', minLength: 1 },
+        startLine: { type: 'integer', minimum: 1 },
+        endLine: { type: 'integer', minimum: 1 },
+        maxChars: { type: 'integer', minimum: 1000, maximum: 100000, default: 12000 },
       },
       required: ['repo', 'path', 'ref'],
       additionalProperties: false,
@@ -337,17 +370,60 @@ const tools = [
     },
   },
   {
+    name: 'github_find_in_file',
+    description: 'Find literal text in a known GitHub file and return compact surrounding snippets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        path: { type: 'string', minLength: 1 },
+        ref: { type: 'string', minLength: 1 },
+        query: { type: 'string', minLength: 1 },
+        contextLines: { type: 'integer', minimum: 0, maximum: 100, default: 20 },
+        maxMatches: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+        maxChars: { type: 'integer', minimum: 1000, maximum: 50000, default: 12000 },
+        caseSensitive: { type: 'boolean', default: false },
+      },
+      required: ['repo', 'path', 'ref', 'query'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: 'github_search_code',
+    description:
+      'Search repository code and return compact matching paths/snippets instead of whole files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        query: { type: 'string', minLength: 1 },
+        paths: { type: 'array', items: { type: 'string' } },
+        limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+        maxChars: { type: 'integer', minimum: 1000, maximum: 50000, default: 12000 },
+      },
+      required: ['repo', 'query'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  },
+  {
     name: 'github_get_diff',
-    description: 'Compare GitHub branches and return changed files.',
+    description:
+      'Compare GitHub branches. Returns a compact summary by default; patch text is opt-in and size-capped.',
     inputSchema: {
       type: 'object',
       properties: {
         repo: { type: 'string' },
         base: { type: 'string' },
         head: { type: 'string' },
+        mode: { type: 'string', enum: ['summary', 'patch'], default: 'summary' },
+        maxChars: { type: 'integer', minimum: 1000, maximum: 100000, default: 20000 },
       },
       required: ['repo', 'base', 'head'],
+      additionalProperties: false,
     },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
   },
   {
     name: 'github_apply_patch',
@@ -432,6 +508,33 @@ const tools = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'github_submit_patch_workflow',
+    description:
+      'Create a branch, apply and validate a patch, commit it, and open a PR in one server-side workflow. Does not merge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        base: { type: 'string' },
+        branch: { type: 'string' },
+        patch: { type: 'string' },
+        commitMessage: { type: 'string' },
+        prTitle: { type: 'string' },
+        prBody: { type: 'string' },
+        allowedFiles: { type: 'array', items: { type: 'string' } },
+        maxFiles: { type: 'integer', minimum: 1 },
+      },
+      required: ['repo', 'base', 'branch', 'patch', 'commitMessage', 'prTitle', 'prBody'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
   },
   {
     name: 'github_create_fix_workflow',
@@ -1065,14 +1168,37 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
 async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
   if (name === 'github_get_recent_commits')
     return result({
-      result: await commits(env, typeof args.since === 'string' ? args.since : undefined),
+      result: await commits(
+        env,
+        typeof args.since === 'string' ? args.since : undefined,
+        typeof args.limit === 'number' ? args.limit : 10
+      ),
     });
   if (name === 'github_get_commit_details')
-    return result(await details(env, required(args, 'sha')));
+    return result(
+      await details(
+        env,
+        required(args, 'sha'),
+        args.includePatch === true,
+        typeof args.maxChars === 'number' ? args.maxChars : 12000
+      )
+    );
   if (name === 'github_get_recent_prs')
     return result({
-      result: await prs(env, typeof args.since === 'string' ? args.since : undefined),
+      result: await prs(
+        env,
+        typeof args.since === 'string' ? args.since : undefined,
+        typeof args.limit === 'number' ? args.limit : 10
+      ),
     });
+  if (name === 'github_get_recent_activity')
+    return result(
+      await recentActivity(env, {
+        since: typeof args.since === 'string' ? args.since : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : 10,
+        advanceCheckpoint: args.advanceCheckpoint === true,
+      })
+    );
   if (name === 'create_devlog_update') return result(await devlog(env));
   if (name === 'record_devlog_post')
     return result(
@@ -1091,6 +1217,10 @@ async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
     return result(await createPost(env, args));
   if (name === 'github_get_file') return result(await githubGetFile(env, args));
 
+  if (name === 'github_find_in_file') return result(await githubFindInFile(env, args));
+
+  if (name === 'github_search_code') return result(await githubSearchCode(env, args));
+
   if (name === 'github_get_diff') return result(await githubGetDiff(env, args));
 
   if (name === 'github_get_branch_status') return result(await githubGetBranchStatus(env, args));
@@ -1108,6 +1238,9 @@ async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
 
   if (name === 'github_merge_pull_request') return result(await githubMergePullRequest(env, args));
 
+  if (name === 'github_submit_patch_workflow')
+    return result(await githubSubmitPatchWorkflow(env, args));
+
   if (name === 'github_create_fix_workflow')
     return result(await githubCreateFixWorkflow(env, args));
 
@@ -1121,11 +1254,16 @@ async function mcp(request: Request, env: WorkerEnv): Promise<Response> {
     return rpc(id, {
       protocolVersion: '2025-06-18',
       capabilities: { tools: { listChanged: true } },
-      serverInfo: { name: 'Bluesky Community Manager', version: '0.4.9' },
+      serverInfo: { name: 'Bluesky Community Manager', version: '0.5.0' },
     });
   if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
   if (message.method === 'ping') return rpc(id, {});
-  if (message.method === 'tools/list') return rpc(id, { tools });
+  if (message.method === 'tools/list')
+    return rpc(id, {
+      tools: tools.filter(
+        tool => !['create_post_with_media', 'post_chatgpt_media'].includes(tool.name)
+      ),
+    });
   if (message.method === 'tools/call') {
     const params = (message.params ?? {}) as Obj;
     try {
@@ -1302,9 +1440,9 @@ export default {
         {
           ok: true,
           service: 'bluesky-community-manager',
-          version: '0.4.9',
+          version: '0.5.0',
           authentication: 'noauth-secret-path',
-          build: 'session-pds-audience-0.4.9',
+          build: 'token-efficient-github-0.5.0',
           config: {
             mcpSecretPath: Boolean(secret),
             atprotoIdentifier: Boolean(env.ATPROTO_IDENTIFIER),
