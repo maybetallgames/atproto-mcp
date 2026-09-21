@@ -72,6 +72,7 @@ const TOOL_ANNOTATIONS: Readonly<Record<string, IToolAnnotations>> = {
   github_get_recent_commits: { readOnlyHint: true },
   github_get_commit_details: { readOnlyHint: true },
   github_get_recent_prs: { readOnlyHint: true },
+  github_get_file: { readOnlyHint: true },
   github_get_diff: { readOnlyHint: true },
   github_get_branch_status: { readOnlyHint: true },
   github_create_fix_workflow: { readOnlyHint: true },

@@ -11,6 +11,37 @@ const client = () =>
     GITHUB_INSTALLATION_ID: process.env['GITHUB_INSTALLATION_ID'] ?? '',
   });
 
+const encodeRepositoryPath = (path: string): string =>
+  path.split('/').map(encodeURIComponent).join('/');
+
+export class GithubGetFileTool implements IMcpTool {
+  schema = {
+    method: 'github_get_file',
+    description: 'Read a UTF-8 text file from a GitHub repository at a branch, tag, or commit.',
+    params: z.object({
+      repo: z.string().describe('GitHub repository in owner/name form.'),
+      path: z.string().min(1).describe('Repository-relative file path.'),
+      ref: z.string().min(1).describe('Branch, tag, or commit SHA to read.'),
+    }),
+    outputSchema: { type: 'object', additionalProperties: true },
+  };
+
+  async handler(params: { repo: string; path: string; ref: string }) {
+    const file = await client().request(
+      `/repos/${params.repo}/contents/${encodeRepositoryPath(params.path)}?ref=${encodeURIComponent(params.ref)}`
+    );
+    if (file.type !== 'file' || file.encoding !== 'base64' || typeof file.content !== 'string') {
+      throw new Error(`GitHub did not return readable file content for ${params.path}`);
+    }
+    return {
+      path: file.path,
+      sha: file.sha,
+      size: file.size,
+      content: Buffer.from(file.content, 'base64').toString('utf8'),
+    };
+  }
+}
+
 export class GithubGetDiffTool implements IMcpTool {
   schema = {
     method: 'github_get_diff',

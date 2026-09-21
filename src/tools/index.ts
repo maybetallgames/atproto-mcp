@@ -47,6 +47,7 @@ import {
   GithubGetBranchStatusTool,
   GithubGetCommitDetailsTool,
   GithubGetDiffTool,
+  GithubGetFileTool,
   GithubGetRecentCommitsTool,
   GithubGetRecentPrsTool,
   GithubValidateChangeTool,
@@ -107,6 +108,7 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new CreateDevlogUpdateTool(),
 
     // GitHub coding workflow
+    () => new GithubGetFileTool(),
     () => new GithubGetDiffTool(),
     () => new GithubGetBranchStatusTool(),
     () => new GithubCreateBranchTool(),

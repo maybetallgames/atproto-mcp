@@ -2,6 +2,7 @@ import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provid
 import { commits, details, prs, devlog, record } from './github-devlog.js';
 
 import {
+  githubGetFile,
   githubGetDiff,
   githubGetBranchStatus,
   githubCreateBranch,
@@ -303,6 +304,26 @@ const tools = [
       openWorldHint: true,
     },
     _meta: { 'openai/fileParams': ['mediaFiles'] },
+  },
+  {
+    name: 'github_get_file',
+    description: 'Read a UTF-8 text file from a GitHub repository at a branch, tag, or commit.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        path: { type: 'string', minLength: 1 },
+        ref: { type: 'string', minLength: 1 },
+      },
+      required: ['repo', 'path', 'ref'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: 'github_get_diff',
@@ -1030,6 +1051,8 @@ async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
   if (name === 'reply_to_post') return result(await reply(env, args));
   if (name === 'create_post' || name === 'create_post_with_media' || name === 'post_chatgpt_media')
     return result(await createPost(env, args));
+  if (name === 'github_get_file') return result(await githubGetFile(env, args));
+
   if (name === 'github_get_diff') return result(await githubGetDiff(env, args));
 
   if (name === 'github_get_branch_status') return result(await githubGetBranchStatus(env, args));

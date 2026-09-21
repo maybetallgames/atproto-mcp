@@ -297,7 +297,7 @@ describe('Phase 2 Integration Tests', () => {
       expect(toolNames).toContain('block_user');
       expect(toolNames).toContain('report_content');
       expect(toolNames).toContain('report_user');
-      expect(tools.length).toBe(64); // Includes eight GitHub coding workflow tools
+      expect(tools.length).toBe(65); // Includes GitHub coding workflow tools
     });
 
     it('should have moderation tools with correct schemas', () => {
@@ -427,7 +427,7 @@ describe('Phase 2 Integration Tests', () => {
 
       // Test total tools created in factory
       const allTools = createTools(mockAtpClient);
-      expect(allTools.length).toBe(64); // Includes eight GitHub coding workflow tools
+      expect(allTools.length).toBe(65); // Includes GitHub coding workflow tools
     });
   });
 });

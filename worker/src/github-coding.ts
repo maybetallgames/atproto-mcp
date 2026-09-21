@@ -125,6 +125,32 @@ function applyPatch(original: string, hunks: Hunk[]): string {
 
 const contentPath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
+export async function githubGetFile(env: Env, args: Obj) {
+  const repo = repoName(args);
+  const path = required(args, 'path');
+  const ref = required(args, 'ref');
+  const file = await github<{
+    type: string;
+    path: string;
+    sha: string;
+    size: number;
+    encoding?: string;
+    content?: string;
+  }>(env, `/repos/${repo}/contents/${contentPath(path)}?ref=${encodeURIComponent(ref)}`);
+  if (file.type !== 'file' || file.encoding !== 'base64' || typeof file.content !== 'string') {
+    throw new Error(`GitHub did not return readable file content for ${path}`);
+  }
+  const bytes = Uint8Array.from(atob(file.content.replace(/\s/g, '')), character =>
+    character.charCodeAt(0)
+  );
+  return {
+    path: file.path,
+    sha: file.sha,
+    size: file.size,
+    content: new TextDecoder().decode(bytes),
+  };
+}
+
 export async function githubGetDiff(env: Env, args: Obj) {
   return github(
     env,
