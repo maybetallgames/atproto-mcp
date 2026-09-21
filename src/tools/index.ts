@@ -44,6 +44,7 @@ import {
   GithubCreateBranchTool,
   GithubCreateFixWorkflowTool,
   GithubCreatePullRequestTool,
+  GithubMergePullRequestTool,
   GithubGetBranchStatusTool,
   GithubGetCommitDetailsTool,
   GithubGetDiffTool,
@@ -116,6 +117,7 @@ export function createTools(atpClient: AtpClient): IMcpTool[] {
     () => new GithubValidateChangeTool(),
     () => new GithubCommitChangesTool(),
     () => new GithubCreatePullRequestTool(),
+    () => new GithubMergePullRequestTool(),
     () => new GithubCreateFixWorkflowTool(),
 
     // Core social operations

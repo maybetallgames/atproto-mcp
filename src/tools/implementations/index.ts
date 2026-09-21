@@ -105,7 +105,11 @@ export {
   GithubApplyPatchTool,
 } from './github-coding-tools.js';
 
-export { GithubValidateChangeTool, GithubCreatePullRequestTool } from './github-pr-tools.js';
+export {
+  GithubValidateChangeTool,
+  GithubCreatePullRequestTool,
+  GithubMergePullRequestTool,
+} from './github-pr-tools.js';
 
 export { GithubCommitChangesTool } from './github-commit-tools.js';
 

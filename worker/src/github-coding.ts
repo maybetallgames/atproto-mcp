@@ -272,6 +272,27 @@ export async function githubCreatePullRequest(env: Env, args: Obj) {
     }),
   });
 }
+export async function githubMergePullRequest(env: Env, args: Obj) {
+  const repo = repoName(args);
+  const pullNumber = args.pullNumber;
+  if (!Number.isInteger(pullNumber) || (pullNumber as number) < 1)
+    throw new Error('pullNumber must be a positive integer');
+  const expectedHeadSha = required(args, 'expectedHeadSha');
+  if (!/^[a-f0-9]{40}$/i.test(expectedHeadSha))
+    throw new Error('expectedHeadSha must be a full 40-character commit SHA');
+  const mergeMethod = args.mergeMethod ?? 'squash';
+  if (!['merge', 'squash', 'rebase'].includes(String(mergeMethod)))
+    throw new Error('mergeMethod must be merge, squash, or rebase');
+  return github(env, `/repos/${repo}/pulls/${pullNumber as number}/merge`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      sha: expectedHeadSha,
+      merge_method: mergeMethod,
+      ...(typeof args.commitTitle === 'string' ? { commit_title: args.commitTitle } : {}),
+      ...(typeof args.commitMessage === 'string' ? { commit_message: args.commitMessage } : {}),
+    }),
+  });
+}
 export async function githubCreateFixWorkflow(_env: Env, args: Obj) {
   return {
     workflow: 'github_fix',

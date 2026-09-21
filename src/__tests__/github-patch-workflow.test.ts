@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GithubApplyPatchTool } from '../tools/implementations/github-coding-tools.js';
 import { GithubCommitChangesTool } from '../tools/implementations/github-commit-tools.js';
+import { GithubMergePullRequestTool } from '../tools/implementations/github-pr-tools.js';
 
 describe('GitHub patch workflow', () => {
   const request = vi.fn();
@@ -46,5 +47,19 @@ describe('GitHub patch workflow', () => {
       })
     ).rejects.toThrow('refusing to create an empty commit');
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges only the explicitly reviewed pull request head', async () => {
+    request.mockResolvedValueOnce({ merged: true, sha: 'merge-sha' });
+    await new GithubMergePullRequestTool(github).handler({
+      repo: 'owner/repo',
+      pullNumber: 42,
+      expectedHeadSha: 'a'.repeat(40),
+      mergeMethod: 'squash',
+    });
+    expect(request).toHaveBeenCalledWith('/repos/owner/repo/pulls/42/merge', {
+      method: 'PUT',
+      body: JSON.stringify({ sha: 'a'.repeat(40), merge_method: 'squash' }),
+    });
   });
 });

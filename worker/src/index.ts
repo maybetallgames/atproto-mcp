@@ -10,6 +10,7 @@ import {
   githubValidateChange,
   githubCommitChanges,
   githubCreatePullRequest,
+  githubMergePullRequest,
   githubCreateFixWorkflow,
 } from './github-coding.js';
 
@@ -438,6 +439,29 @@ const tools = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'github_merge_pull_request',
+    description: 'Merge an approved pull request only when its head matches the reviewed SHA.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        pullNumber: { type: 'integer', minimum: 1 },
+        expectedHeadSha: { type: 'string', pattern: '^[a-fA-F0-9]{40}$' },
+        mergeMethod: { type: 'string', enum: ['merge', 'squash', 'rebase'], default: 'squash' },
+        commitTitle: { type: 'string' },
+        commitMessage: { type: 'string' },
+      },
+      required: ['repo', 'pullNumber', 'expectedHeadSha'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 ];
 
@@ -1067,6 +1091,8 @@ async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
 
   if (name === 'github_create_pull_request')
     return result(await githubCreatePullRequest(env, args));
+
+  if (name === 'github_merge_pull_request') return result(await githubMergePullRequest(env, args));
 
   if (name === 'github_create_fix_workflow')
     return result(await githubCreateFixWorkflow(env, args));

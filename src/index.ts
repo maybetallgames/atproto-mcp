@@ -85,6 +85,11 @@ const TOOL_ANNOTATIONS: Readonly<Record<string, IToolAnnotations>> = {
     destructiveHint: false,
     idempotentHint: false,
   },
+  github_merge_pull_request: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+  },
   create_devlog_update: { readOnlyHint: true },
   // Pure read tools.
   analyze_account: { readOnlyHint: true },

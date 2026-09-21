@@ -59,3 +59,47 @@ export class GithubCreatePullRequestTool implements IMcpTool {
     });
   }
 }
+
+export class GithubMergePullRequestTool implements IMcpTool {
+  constructor(private readonly github: Pick<GitHubAppClient, 'request'> = client()) {}
+
+  schema = {
+    method: 'github_merge_pull_request',
+    description:
+      'Merge an approved pull request only if its current head matches the reviewed commit SHA.',
+    params: z.object({
+      repo: z.string().describe('GitHub repository in owner/name form.'),
+      pullNumber: z.number().int().positive().describe('Pull request number to merge.'),
+      expectedHeadSha: z
+        .string()
+        .regex(/^[a-f0-9]{40}$/i)
+        .describe('Exact reviewed PR head SHA; the merge fails if the head changed.'),
+      mergeMethod: z
+        .enum(['merge', 'squash', 'rebase'])
+        .default('squash')
+        .describe('GitHub merge method.'),
+      commitTitle: z.string().optional().describe('Optional title for the merge commit.'),
+      commitMessage: z.string().optional().describe('Optional merge commit message.'),
+    }),
+    outputSchema: { type: 'object', additionalProperties: true },
+  };
+
+  async handler(params: {
+    repo: string;
+    pullNumber: number;
+    expectedHeadSha: string;
+    mergeMethod: 'merge' | 'squash' | 'rebase';
+    commitTitle?: string;
+    commitMessage?: string;
+  }) {
+    return this.github.request(`/repos/${params.repo}/pulls/${params.pullNumber}/merge`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        sha: params.expectedHeadSha,
+        merge_method: params.mergeMethod,
+        ...(params.commitTitle ? { commit_title: params.commitTitle } : {}),
+        ...(params.commitMessage ? { commit_message: params.commitMessage } : {}),
+      }),
+    });
+  }
+}
