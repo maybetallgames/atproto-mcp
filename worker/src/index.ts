@@ -1064,11 +1064,15 @@ async function createPost(env: WorkerEnv, args: Obj): Promise<Obj> {
 }
 async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
   if (name === 'github_get_recent_commits')
-    return result({ result: await commits(env, typeof args.since === 'string' ? args.since : undefined) });
+    return result({
+      result: await commits(env, typeof args.since === 'string' ? args.since : undefined),
+    });
   if (name === 'github_get_commit_details')
     return result(await details(env, required(args, 'sha')));
   if (name === 'github_get_recent_prs')
-    return result({ result: await prs(env, typeof args.since === 'string' ? args.since : undefined) });
+    return result({
+      result: await prs(env, typeof args.since === 'string' ? args.since : undefined),
+    });
   if (name === 'create_devlog_update') return result(await devlog(env));
   if (name === 'record_devlog_post')
     return result(
