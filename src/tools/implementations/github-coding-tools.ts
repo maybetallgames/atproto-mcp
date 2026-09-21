@@ -33,27 +33,59 @@ export class GithubCreateBranchTool implements IMcpTool {
 export class GithubApplyPatchTool implements IMcpTool {
   schema = {
     method: 'github_apply_patch',
-    description: 'Parse and prepare a unified diff patch for repository application.',
-    params: z.object({ repo: z.string(), branch: z.string(), patch: z.string(), content: z.record(z.string()).optional() }),
+    description: 'Apply a unified diff patch and commit the result to a branch.',
+    params: z.object({ repo: z.string(), branch: z.string(), patch: z.string(), message: z.string().optional() }),
     outputSchema: { type: 'object', additionalProperties: true },
   };
 
-  async handler(params: { repo: string; branch: string; patch: string; content?: Record<string, string> }) {
+  async handler(params: { repo: string; branch: string; patch: string; message?: string }) {
+    const github = client();
     const files = parseUnifiedDiff(params.patch);
+    const branch = await github.request(`/repos/${params.repo}/branches/${encodeURIComponent(params.branch)}`);
 
-    const updatedFiles = files.map((file) => ({
-      path: file.newPath,
-      content: params.content?.[file.oldPath]
-        ? applyUnifiedPatch(params.content[file.oldPath], file.hunks)
-        : null,
-    }));
+    const treeEntries = [];
+
+    for (const file of files) {
+      const current = await github.request(`/repos/${params.repo}/contents/${file.oldPath}?ref=${encodeURIComponent(params.branch)}`);
+      const original = Buffer.from(current.content, 'base64').toString('utf8');
+      const updated = applyUnifiedPatch(original, file.hunks);
+
+      const blob = await github.request(`/repos/${params.repo}/git/blobs`, {
+        method: 'POST',
+        body: JSON.stringify({ content: updated, encoding: 'utf-8' }),
+      });
+
+      treeEntries.push({
+        path: file.newPath,
+        mode: '100644',
+        type: 'blob',
+        sha: blob.sha,
+      });
+    }
+
+    const tree = await github.request(`/repos/${params.repo}/git/trees`, {
+      method: 'POST',
+      body: JSON.stringify({ tree: treeEntries }),
+    });
+
+    const commit = await github.request(`/repos/${params.repo}/git/commits`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message: params.message ?? 'Apply patch',
+        tree: tree.sha,
+        parents: [branch.commit.sha],
+      }),
+    });
+
+    await github.request(`/repos/${params.repo}/git/refs/heads/${encodeURIComponent(params.branch)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sha: commit.sha }),
+    });
 
     return {
       accepted: true,
-      message: 'Patch parsed successfully. File application requires commit tree creation.',
-      repo: params.repo,
-      branch: params.branch,
-      files: updatedFiles,
+      commit: commit.sha,
+      files: files.map((file) => file.newPath),
     };
   }
 }
