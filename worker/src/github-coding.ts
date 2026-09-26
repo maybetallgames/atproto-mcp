@@ -171,6 +171,17 @@ export async function githubGetFile(env: Env, args: Obj) {
   const ref = required(args, 'ref');
   const file = await readFile(env, repo, path, ref);
   const lines = file.content.split('\n');
+  const knownSha = typeof args.knownSha === 'string' ? args.knownSha : undefined;
+  if (knownSha && knownSha === file.sha) {
+    return {
+      path: file.path,
+      sha: file.sha,
+      size: file.size,
+      totalLines: lines.length,
+      unchanged: true,
+      truncated: false,
+    };
+  }
   const startLine = integerArg(args, 'startLine', 1, 1, Math.max(1, lines.length));
   const endLine = integerArg(args, 'endLine', lines.length, startLine, lines.length);
   const maxChars = integerArg(args, 'maxChars', 12000, 1000, 100000);
@@ -180,6 +191,7 @@ export async function githubGetFile(env: Env, args: Obj) {
     path: file.path,
     sha: file.sha,
     size: file.size,
+    unchanged: false,
     startLine,
     endLine,
     totalLines: lines.length,
@@ -199,6 +211,19 @@ export async function githubFindInFile(env: Env, args: Obj) {
   const caseSensitive = args.caseSensitive === true;
   const file = await readFile(env, repo, path, ref);
   const lines = file.content.split('\n');
+  const knownSha = typeof args.knownSha === 'string' ? args.knownSha : undefined;
+  if (knownSha && knownSha === file.sha) {
+    return {
+      path: file.path,
+      sha: file.sha,
+      query,
+      totalLines: lines.length,
+      matchCount: 0,
+      truncated: false,
+      unchanged: true,
+      matches: [],
+    };
+  }
   const needle = caseSensitive ? query : query.toLowerCase();
   const matches: Array<{ line: number; startLine: number; endLine: number; snippet: string }> = [];
   let used = 0;
@@ -221,6 +246,7 @@ export async function githubFindInFile(env: Env, args: Obj) {
     totalLines: lines.length,
     matchCount: matches.length,
     truncated: matches.length >= maxMatches || used >= maxChars,
+    unchanged: false,
     matches,
   };
 }
@@ -527,6 +553,40 @@ export async function githubSubmitPatchWorkflow(env: Env, args: Obj) {
     commitSha: commit.sha,
     files: prepared.files,
     pullRequest,
+  };
+}
+
+export async function githubUpdatePatchWorkflow(env: Env, args: Obj) {
+  const repo = repoName(args);
+  const branch = required(args, 'branch');
+  const prepared = await githubApplyPatch(env, {
+    repo,
+    branch,
+    patch: required(args, 'patch'),
+    message: required(args, 'commitMessage'),
+  });
+  const validation = await githubValidateChange(env, {
+    files: prepared.files,
+    allowedFiles: Array.isArray(args.allowedFiles) ? args.allowedFiles : [],
+    maxFiles: typeof args.maxFiles === 'number' ? args.maxFiles : undefined,
+  });
+  if (!validation.valid)
+    throw new Error(
+      `Change validation failed: ${validation.invalidFiles.join(', ') || 'too many files'}`
+    );
+  const commit = await githubCommitChanges(env, {
+    repo,
+    branch,
+    message: required(args, 'commitMessage'),
+    treeSha: prepared.treeSha,
+    parentSha: prepared.parentSha,
+  });
+  return {
+    success: true,
+    branch,
+    previousHeadSha: prepared.parentSha,
+    commitSha: commit.sha,
+    files: prepared.files,
   };
 }
 
