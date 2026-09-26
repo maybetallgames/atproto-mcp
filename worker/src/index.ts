@@ -14,6 +14,7 @@ import {
   githubCreatePullRequest,
   githubMergePullRequest,
   githubSubmitPatchWorkflow,
+  githubUpdatePatchWorkflow,
   githubCreateFixWorkflow,
 } from './github-coding.js';
 
@@ -355,6 +356,7 @@ const tools = [
         repo: { type: 'string' },
         path: { type: 'string', minLength: 1 },
         ref: { type: 'string', minLength: 1 },
+        knownSha: { type: 'string', minLength: 1 },
         startLine: { type: 'integer', minimum: 1 },
         endLine: { type: 'integer', minimum: 1 },
         maxChars: { type: 'integer', minimum: 1000, maximum: 100000, default: 12000 },
@@ -379,6 +381,7 @@ const tools = [
         path: { type: 'string', minLength: 1 },
         ref: { type: 'string', minLength: 1 },
         query: { type: 'string', minLength: 1 },
+        knownSha: { type: 'string', minLength: 1 },
         contextLines: { type: 'integer', minimum: 0, maximum: 100, default: 20 },
         maxMatches: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
         maxChars: { type: 'integer', minimum: 1000, maximum: 50000, default: 12000 },
@@ -527,6 +530,30 @@ const tools = [
         maxFiles: { type: 'integer', minimum: 1 },
       },
       required: ['repo', 'base', 'branch', 'patch', 'commitMessage', 'prTitle', 'prBody'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: 'github_update_patch_workflow',
+    description:
+      'Apply, validate, and commit a revision to an existing branch in one compact server-side workflow. Use for follow-up iterations on an open PR.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string' },
+        branch: { type: 'string' },
+        patch: { type: 'string' },
+        commitMessage: { type: 'string' },
+        allowedFiles: { type: 'array', items: { type: 'string' } },
+        maxFiles: { type: 'integer', minimum: 1 },
+      },
+      required: ['repo', 'branch', 'patch', 'commitMessage'],
       additionalProperties: false,
     },
     annotations: {
@@ -1241,6 +1268,9 @@ async function invoke(env: WorkerEnv, name: unknown, args: Obj): Promise<Obj> {
   if (name === 'github_submit_patch_workflow')
     return result(await githubSubmitPatchWorkflow(env, args));
 
+  if (name === 'github_update_patch_workflow')
+    return result(await githubUpdatePatchWorkflow(env, args));
+
   if (name === 'github_create_fix_workflow')
     return result(await githubCreateFixWorkflow(env, args));
 
@@ -1254,7 +1284,7 @@ async function mcp(request: Request, env: WorkerEnv): Promise<Response> {
     return rpc(id, {
       protocolVersion: '2025-06-18',
       capabilities: { tools: { listChanged: true } },
-      serverInfo: { name: 'Bluesky Community Manager', version: '0.5.0' },
+      serverInfo: { name: 'Bluesky Community Manager', version: '0.5.1' },
     });
   if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
   if (message.method === 'ping') return rpc(id, {});
